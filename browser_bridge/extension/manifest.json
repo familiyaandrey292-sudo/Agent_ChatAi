@@ -1,0 +1,33 @@
+﻿{
+    "manifest_version":  3,
+    "name":  "Agent ChatAI Browser Bridge",
+    "version":  "0.3.0",
+    "description":  "Universal browser bridge for Agent_ChatAi.",
+    "permissions":  [
+                        "storage",
+                        "tabs",
+                        "scripting"
+                    ],
+    "host_permissions":  [
+                             "\u003call_urls\u003e",
+                             "http://127.0.0.1:8765/*"
+                         ],
+    "background":  {
+                       "service_worker":  "background.js"
+                   },
+    "action":  {
+                   "default_title":  "Agent ChatAI Browser Bridge",
+                   "default_popup":  "popup.html"
+               },
+    "content_scripts":  [
+                            {
+                                "run_at":  "document_idle",
+                                "matches":  [
+                                                "\u003call_urls\u003e"
+                                            ],
+                                "js":  [
+                                           "content.js"
+                                       ]
+                            }
+                        ]
+}

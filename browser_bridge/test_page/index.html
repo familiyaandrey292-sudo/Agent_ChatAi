@@ -1,0 +1,66 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Agent ChatAI Bridge Test</title>
+</head>
+<body>
+
+<h1 id="status">Checking Browser Bridge...</h1>
+<pre id="details"></pre>
+
+<div id="chat">
+    <div class="assistant-message">
+        Реальный ACTION:
+        AGX1:A:eyJhY3Rpb24iOiJmaWxlcy5saXN0IiwiYXJncyI6eyJwYXRoIjoiLiJ9LCJjb21tYW5kX2lkIjoiNjRjYzY4NWNiNDA5NDNjOWI2ODM2YTdjZTBjNzIyYjYiLCJraW5kIjoiYWN0aW9uIiwibWVzc2FnZV9pZCI6ImQzNDllYTc5ZjMzODQ0MzliYWRkMzY1ZTdjOGRiNGRlIiwibm9uY2UiOiJ1RGZrMUpjd01tcEp2SnBFbG5aZ0lCbkUiLCJzZXF1ZW5jZSI6MCwic2Vzc2lvbl9pZCI6ImJyb3dzZXItY2FuY2VsLTQzNGVhYmQ5YTE3NTRiMmRiY2NmZjVkYjVhYzNmNmZlIiwidGltZXN0YW1wIjoiMjAyNi0wOS0yMVQxMDoxMToyMFoiLCJ2ZXJzaW9uIjoxfQ:363d3a70672b404a851bec7893fd36c9418cba8f13d1613e1285121508b0bd41
+    </div>
+</div>
+
+<script>
+function check() {
+    const bridge =
+        document.documentElement.dataset.agentChataiBridge === "loaded";
+
+    const found =
+        document.documentElement.dataset.agentChataiAgxFound || "0";
+
+    const ack =
+        document.documentElement.dataset.agentChataiBackgroundAck || "0";
+
+    const gatewayAck =
+        document.documentElement.dataset.agentChataiGatewayAck || "0";
+
+    const result =
+        document.documentElement.dataset.agentChataiGatewayResult || "0";
+
+    const error =
+        document.documentElement.dataset.agentChataiGatewayError || "";
+
+    const passed =
+        bridge &&
+        found !== "0" &&
+        ack === "1" &&
+        gatewayAck === "1" &&
+        result === "received";
+
+    document.getElementById("status").textContent =
+        passed
+            ? "PASS: ACTION -> Gateway -> RESULT"
+            : error
+                ? "FAIL: " + error
+                : "WAITING: processing ACTION";
+
+    document.getElementById("details").textContent =
+        "Bridge: " + (bridge ? "loaded" : "not found") +
+        "\nACTION found: " + found +
+        "\nBackground ACK: " + ack +
+        "\nGateway ACK: " + gatewayAck +
+        "\nRESULT received: " + result;
+}
+
+setInterval(check, 250);
+check();
+</script>
+
+</body>
+</html>
