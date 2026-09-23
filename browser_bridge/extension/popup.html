@@ -40,10 +40,72 @@
             white-space: pre-wrap;
             font-size: 12px;
         }
+
+        #bridge-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 14px;
+            font-size: 13px;
+        }
+
+        #bridge-toggle {
+            display: none;
+        }
+
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 40px;
+            height: 22px;
+            margin: 0;
+        }
+
+        .slider {
+            position: absolute;
+            inset: 0;
+            background: #bbb;
+            border-radius: 22px;
+            transition: background 0.15s ease;
+            cursor: pointer;
+        }
+
+        .slider::before {
+            content: "";
+            position: absolute;
+            width: 18px;
+            height: 18px;
+            left: 2px;
+            top: 2px;
+            background: #fff;
+            border-radius: 50%;
+            transition: transform 0.15s ease;
+        }
+
+        #bridge-toggle:checked + .slider {
+            background: #2b7de9;
+        }
+
+        #bridge-toggle:checked + .slider::before {
+            transform: translateX(18px);
+        }
+
+        #bridge-toggle:disabled + .slider {
+            opacity: 0.45;
+            cursor: default;
+        }
     </style>
 </head>
 <body>
     <h1>Agent ChatAI Bridge</h1>
+
+    <div id="bridge-row">
+        <span id="bridge-label">Bridge enabled on this tab</span>
+        <input id="bridge-toggle" type="checkbox">
+        <label class="switch" for="bridge-toggle">
+            <span class="slider"></span>
+        </label>
+    </div>
 
     <label for="code">
         Gateway pairing code
