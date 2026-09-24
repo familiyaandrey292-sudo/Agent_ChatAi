@@ -9,18 +9,7 @@ let lastContainer = null;
 let confirmationToken = null;
 let confirmationBar = null;
 
-function bridgeEnabled() {
-    return (
-        document.documentElement.dataset
-            .agentChataiBridgeEnabled !== "0"
-    );
-}
-
 function extractActionContainers(text) {
-    if (!bridgeEnabled()) {
-        return [];
-    }
-
     if (typeof text !== "string" || !text.length) {
         return [];
     }
@@ -278,18 +267,6 @@ function inspectDocument() {
 }
 
 inspectDocument();
-
-new MutationObserver(() => {
-    if (!bridgeEnabled() && confirmationBar) {
-        removeConfirmationBar();
-    }
-}).observe(
-    document.documentElement,
-    {
-        attributes: true,
-        attributeFilter: ["data-agent-chatai-bridge-enabled"]
-    }
-);
 
 const observer = new MutationObserver(
     (mutations) => {

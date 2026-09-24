@@ -9,98 +9,6 @@ const pairButton =
 const status =
     document.getElementById("status");
 
-const bridgeToggle =
-    document.getElementById("bridge-toggle");
-
-const bridgeLabel =
-    document.getElementById("bridge-label");
-
-function setBridgeUi(enabled, unavailable) {
-    bridgeToggle.checked = enabled;
-    bridgeToggle.disabled = Boolean(unavailable);
-
-    if (unavailable) {
-        bridgeLabel.textContent =
-            "Bridge unavailable on this tab.";
-    } else if (enabled) {
-        bridgeLabel.textContent =
-            "Bridge enabled on this tab";
-    } else {
-        bridgeLabel.textContent =
-            "Bridge disabled on this tab";
-    }
-}
-
-async function getActiveTab() {
-    const tabs =
-        await chrome.tabs.query({
-            active: true,
-            currentWindow: true
-        });
-
-    return tabs[0] || null;
-}
-
-function isBridgeSupportedUrl(url) {
-    return (
-        typeof url === "string" &&
-        /^(https?|file):/.test(url)
-    );
-}
-
-async function refreshBridgeState(tab) {
-    if (!tab || !isBridgeSupportedUrl(tab.url)) {
-        setBridgeUi(false, true);
-        return;
-    }
-
-    try {
-        const results =
-            await chrome.scripting.executeScript({
-                target: { tabId: tab.id },
-                func: () =>
-                    document.documentElement.dataset
-                        .agentChataiBridgeEnabled !== "0"
-            });
-
-        const enabled =
-            results?.[0]?.result !== false;
-
-        setBridgeUi(enabled, false);
-    } catch (error) {
-        setBridgeUi(false, true);
-    }
-}
-
-bridgeToggle.addEventListener(
-    "change",
-    async () => {
-        const desired = bridgeToggle.checked;
-        const tab = await getActiveTab();
-
-        if (!tab || !isBridgeSupportedUrl(tab.url)) {
-            setBridgeUi(false, true);
-            return;
-        }
-
-        try {
-            await chrome.scripting.executeScript({
-                target: { tabId: tab.id },
-                func: (enabled) => {
-                    document.documentElement.dataset
-                        .agentChataiBridgeEnabled =
-                        enabled ? "1" : "0";
-                },
-                args: [desired]
-            });
-
-            setBridgeUi(desired, false);
-        } catch (error) {
-            setBridgeUi(false, true);
-        }
-    }
-);
-
 async function refreshStatus() {
     try {
         const identity =
@@ -194,9 +102,5 @@ pairButton.addEventListener(
         }
     }
 );
-
-getActiveTab()
-    .then(refreshBridgeState)
-    .catch(() => setBridgeUi(false, true));
 
 refreshStatus().catch(() => {});
