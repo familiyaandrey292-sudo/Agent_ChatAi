@@ -1,0 +1,697 @@
+﻿"use strict";
+
+document.documentElement.dataset.agentChataiBridge = "loaded";
+
+const AGX_ACTION_PATTERN =
+    /AGX1:A:[A-Za-z0-9_-]+:[A-Fa-f0-9]{64}/g;
+
+const AGX_COMMAND_PATTERN =
+    /AGX1:C:[A-Za-z0-9_-]+:[A-Fa-f0-9]{64}/g;
+let lastCommandContainer = null;
+let lastContainer = null;
+let confirmationToken = null;
+let confirmationBar = null;
+let lastPublishedResult = null;
+
+function extractActionContainers(text) {
+    if (typeof text !== "string" || !text.length) {
+        return [];
+    }
+
+    return [...new Set(
+        text.match(AGX_ACTION_PATTERN) || []
+    )];
+}
+
+function extractCommandContainers(text) {
+    if (typeof text !== "string" || !text.length) {
+        return [];
+    }
+
+    return [...new Set(
+        text.match(AGX_COMMAND_PATTERN) || []
+    )];
+}
+function removeConfirmationBar() {
+    if (confirmationBar) {
+        confirmationBar.remove();
+        confirmationBar = null;
+    }
+
+    confirmationToken = null;
+
+    document.documentElement.dataset
+        .agentChataiConfirmationPending = "0";
+}
+
+function showConfirmationBar(response) {
+    removeConfirmationBar();
+
+    confirmationToken = response.confirmationToken;
+
+    if (!confirmationToken) {
+        return;
+    }
+
+    document.documentElement.dataset
+        .agentChataiConfirmationPending = "1";
+
+    const bar = document.createElement("div");
+
+    bar.style.position = "fixed";
+    bar.style.right = "20px";
+    bar.style.bottom = "20px";
+    bar.style.zIndex = "2147483647";
+    bar.style.padding = "14px";
+    bar.style.background = "#ffffff";
+    bar.style.border = "1px solid #888";
+    bar.style.borderRadius = "8px";
+    bar.style.boxShadow = "0 4px 18px rgba(0,0,0,.2)";
+    bar.style.fontFamily = "system-ui, sans-serif";
+    bar.style.maxWidth = "360px";
+
+    const title = document.createElement("div");
+    title.textContent = "Action requires your confirmation";
+    title.style.fontWeight = "600";
+    title.style.marginBottom = "8px";
+
+    const details = document.createElement("div");
+    details.textContent =
+        response.resultMessage ||
+        "A local action is waiting for confirmation.";
+    details.style.marginBottom = "12px";
+
+    const confirm = document.createElement("button");
+    confirm.textContent = "Confirm";
+    confirm.style.marginRight = "8px";
+
+    const cancel = document.createElement("button");
+    cancel.textContent = "Cancel";
+
+    cancel.addEventListener("click", () => {
+        cancel.disabled = true;
+
+        chrome.runtime.sendMessage(
+            {
+                type: "AGX_CANCEL_ACTION",
+                confirmationToken
+            },
+            (result) => {
+                if (chrome.runtime.lastError) {
+                    document.documentElement.dataset
+                        .agentChataiGatewayError =
+                        chrome.runtime.lastError.message;
+                    cancel.disabled = false;
+                    return;
+                }
+
+                if (!result || !result.ok) {
+                    document.documentElement.dataset
+                        .agentChataiGatewayError =
+                        result?.message ||
+                        result?.error ||
+                        "cancel_rejected";
+                    cancel.disabled = false;
+                    return;
+                }
+
+                document.documentElement.dataset
+                    .agentChataiConfirmationPending =
+                    "0";
+
+                document.documentElement.dataset
+                    .agentChataiConfirmationCancelled =
+                    "1";
+
+                removeConfirmationBar();
+            }
+        );
+    });
+
+    confirm.addEventListener("click", () => {
+        confirm.disabled = true;
+        cancel.disabled = true;
+        confirm.textContent = "Confirming...";
+
+        chrome.runtime.sendMessage(
+            {
+                type: "AGX_CONFIRM_ACTION",
+                confirmationToken
+            },
+            (result) => {
+                if (chrome.runtime.lastError) {
+                    document.documentElement.dataset
+                        .agentChataiGatewayError =
+                        chrome.runtime.lastError.message;
+                    confirm.disabled = false;
+                    cancel.disabled = false;
+                    confirm.textContent = "Confirm";
+                    return;
+                }
+
+                if (!result || !result.ok) {
+                    document.documentElement.dataset
+                        .agentChataiGatewayError =
+                        result?.message ||
+                        result?.error ||
+                        "confirmation_rejected";
+
+                    confirm.disabled = false;
+                    cancel.disabled = false;
+                    confirm.textContent = "Confirm";
+                    return;
+                }
+
+                document.documentElement.dataset
+                    .agentChataiBackgroundAck = "1";
+
+                document.documentElement.dataset
+                    .agentChataiGatewayAck = "1";
+
+                document.documentElement.dataset
+                    .agentChataiSignatureVerified =
+                        result.signatureVerified === true
+                            ? "1"
+                            : "0";
+
+                document.documentElement.dataset
+                    .agentChataiGatewayResult =
+                        result.signatureVerified === true
+                            ? "received"
+                            : "rejected";
+
+                document.documentElement.dataset
+                    .agentChataiResultStatus =
+                        result.resultStatus || "";
+
+                document.documentElement.dataset
+                    .agentChataiResultStatus =
+                    result.resultStatus || "";
+
+                if (result.signatureVerified === true && result.resultContainer) {
+                    publishResultToChat(result.resultContainer);
+                }
+
+                document.documentElement.dataset
+                    .agentChataiConfirmationPending = "0";
+
+                removeConfirmationBar();
+            }
+        );
+    });
+
+    bar.appendChild(title);
+    bar.appendChild(details);
+    bar.appendChild(confirm);
+    bar.appendChild(cancel);
+
+    document.body.appendChild(bar);
+
+    confirmationBar = bar;
+}
+
+function reportContainers(containers) {
+    for (const container of containers) {
+        if (container === lastContainer) {
+            continue;
+        }
+
+        lastContainer = container;
+
+        document.documentElement.dataset
+            .agentChataiAgxFound = "1";
+
+        chrome.runtime.sendMessage(
+            {
+                type: "AGX_ACTION_DETECTED",
+                containers: [container]
+            },
+            (response) => {
+                if (chrome.runtime.lastError) {
+                    document.documentElement.dataset
+                        .agentChataiGatewayError =
+                        chrome.runtime.lastError.message;
+                    return;
+                }
+
+                if (!response || !response.ok) {
+                    document.documentElement.dataset
+                        .agentChataiGatewayError =
+                        response?.message ||
+                        response?.error ||
+                        "unknown_error";
+                    return;
+                }
+
+                document.documentElement.dataset
+                    .agentChataiBackgroundAck = "1";
+
+                document.documentElement.dataset
+                    .agentChataiGatewayAck = "1";
+
+                document.documentElement.dataset
+                    .agentChataiSignatureVerified =
+                        response.signatureVerified === true
+                            ? "1"
+                            : "0";
+
+                document.documentElement.dataset
+                    .agentChataiGatewayResult =
+                        response.signatureVerified === true
+                            ? "received"
+                            : "rejected";
+
+                document.documentElement.dataset
+                    .agentChataiResultStatus =
+                    response.resultStatus || "";
+
+                if (response.signatureVerified === true && response.resultContainer && !response.confirmationRequired) {
+                    publishResultToChat(response.resultContainer);
+                }
+
+                if (
+                    response.confirmationRequired &&
+                    response.confirmationToken
+                ) {
+                    showConfirmationBar(response);
+                }
+            }
+        );
+    }
+}
+
+function isVisibleEditable(element) {
+    if (!element || !document.documentElement.contains(element)) {
+        return false;
+    }
+
+    const style = window.getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+
+    return (
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        rect.width > 0 &&
+        rect.height > 0 &&
+        !element.disabled &&
+        element.getAttribute("aria-hidden") !== "true"
+    );
+}
+
+function editableScore(element) {
+    let score = 0;
+    const text = [
+        element.getAttribute("aria-label") || "",
+        element.getAttribute("placeholder") || "",
+        element.getAttribute("name") || "",
+        element.getAttribute("data-testid") || "",
+        element.getAttribute("role") || ""
+    ].join(" ").toLowerCase();
+
+    if (element === document.activeElement) score += 100;
+    if (element.matches('[contenteditable="true"]')) score += 40;
+    if (element.matches("textarea")) score += 35;
+    if (element.matches('input[type="text"]')) score += 20;
+    if (element.matches('[role="textbox"]')) score += 20;
+
+    if (/message|chat|prompt|reply|compose|ask|Р Р†Р Р†Р ВµР Т‘|РЎРѓР С•Р С•Р В±РЎвЂ°|Р В·Р В°Р С—РЎР‚Р С•РЎРѓ/.test(text)) {
+        score += 35;
+    }
+
+    const rect = element.getBoundingClientRect();
+    if (rect.bottom > window.innerHeight * 0.45) {
+        score += 15;
+    }
+
+    return score;
+}
+
+function findChatComposer() {
+    const candidates = [
+        ...document.querySelectorAll(
+            '[contenteditable="true"], textarea, input[type="text"], [role="textbox"]'
+        )
+    ].filter(isVisibleEditable);
+
+    candidates.sort(
+        (a, b) => editableScore(b) - editableScore(a)
+    );
+
+    return candidates[0] || null;
+}
+
+function setComposerText(element, text) {
+    element.focus();
+
+    if (
+        element instanceof HTMLTextAreaElement ||
+        element instanceof HTMLInputElement
+    ) {
+        const setter = Object.getOwnPropertyDescriptor(
+            Object.getPrototypeOf(element),
+            "value"
+        )?.set;
+
+        if (setter) {
+            setter.call(element, text);
+        } else {
+            element.value = text;
+        }
+
+        element.dispatchEvent(
+            new Event("input", { bubbles: true })
+        );
+        element.dispatchEvent(
+            new Event("change", { bubbles: true })
+        );
+        return;
+    }
+
+    const selection = window.getSelection();
+    const range = document.createRange();
+
+    range.selectNodeContents(element);
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    let inserted = false;
+
+    try {
+        inserted = document.execCommand(
+            "insertText",
+            false,
+            text
+        );
+    } catch (_) {
+        inserted = false;
+    }
+
+    if (!inserted) {
+        element.replaceChildren(
+            document.createTextNode(text)
+        );
+    }
+
+    try {
+        element.dispatchEvent(
+            new InputEvent("input", {
+                bubbles: true,
+                inputType: "insertText",
+                data: text
+            })
+        );
+    } catch (_) {
+        element.dispatchEvent(
+            new Event("input", { bubbles: true })
+        );
+    }
+}
+
+function findChatSubmitButton(composer) {
+    const form = composer.closest("form");
+
+    if (form) {
+        const submit = form.querySelector(
+            'button[type="submit"], input[type="submit"]'
+        );
+
+        if (submit && isVisibleEditable(submit)) {
+            return submit;
+        }
+    }
+
+    const container =
+        composer.closest("form") ||
+        composer.parentElement?.parentElement ||
+        document.body;
+
+    const buttons = [
+        ...container.querySelectorAll(
+            'button, [role="button"], input[type="submit"]'
+        )
+    ].filter(
+        (button) =>
+            button !== composer &&
+            !button.disabled &&
+            isVisibleEditable(button)
+    );
+
+    const scored = buttons.map((button) => {
+        const label = [
+            button.getAttribute("aria-label") || "",
+            button.getAttribute("title") || "",
+            button.getAttribute("data-testid") || "",
+            button.getAttribute("name") || "",
+            button.textContent || ""
+        ].join(" ").toLowerCase();
+
+        let score = 0;
+        if (/send|submit|ask|message|Р С•РЎвЂљР С—РЎР‚Р В°Р Р†|Р С—Р С•РЎРѓР В»Р В°РЎвЂљРЎРЉ|Р С•РЎвЂљР Р†Р ВµРЎвЂљР С‘РЎвЂљРЎРЉ/.test(label)) {
+            score += 100;
+        }
+
+        const r = button.getBoundingClientRect();
+        const c = composer.getBoundingClientRect();
+
+        if (r.bottom >= c.top - 100 && r.top <= c.bottom + 100) {
+            score += 25;
+        }
+
+        return { button, score };
+    });
+
+    scored.sort((a, b) => b.score - a.score);
+
+    return scored[0]?.score >= 100
+        ? scored[0].button
+        : null;
+}
+
+function submitChatComposer(composer) {
+    const button = findChatSubmitButton(composer);
+
+    if (button) {
+        button.click();
+        return true;
+    }
+
+    const form = composer.closest("form");
+
+    if (form && typeof form.requestSubmit === "function") {
+        form.requestSubmit();
+        return true;
+    }
+
+    for (const type of ["keydown", "keyup"]) {
+        composer.dispatchEvent(
+            new KeyboardEvent(type, {
+                key: "Enter",
+                code: "Enter",
+                keyCode: 13,
+                which: 13,
+                bubbles: true,
+                cancelable: true
+            })
+        );
+    }
+
+    return true;
+}
+
+function publishResultToChat(resultContainer) {
+    if (
+        typeof resultContainer !== "string" ||
+        !resultContainer.startsWith("AGX1:R:") ||
+        resultContainer === lastPublishedResult
+    ) {
+        return false;
+    }
+
+    const composer = findChatComposer();
+
+    if (!composer) {
+        document.documentElement.dataset.agentChataiChatOutput =
+            "composer_not_found";
+        return false;
+    }
+
+    lastPublishedResult = resultContainer;
+
+    try {
+        setComposerText(
+            composer,
+            resultContainer
+        );
+
+        document.documentElement.dataset.agentChataiChatOutput =
+            "inserted";
+
+        window.setTimeout(
+            () => submitChatComposer(composer),
+            50
+        );
+
+        return true;
+    } catch (error) {
+        document.documentElement.dataset.agentChataiChatOutput =
+            "error";
+
+        console.error(
+            "[Agent ChatAI Browser Bridge]",
+            "chat result injection failed",
+            error
+        );
+
+        return false;
+    }
+}
+
+function reportCommandContainers(containers) {
+    for (const container of containers) {
+        if (container === lastCommandContainer) {
+            continue;
+        }
+
+        lastCommandContainer = container;
+        document.documentElement.dataset
+            .agentChataiAgxFound = "1";
+
+        chrome.runtime.sendMessage(
+            {
+                type: "AGX_COMMAND_DETECTED",
+                containers: [container]
+            },
+            (response) => {
+                if (chrome.runtime.lastError) {
+                    document.documentElement.dataset
+                        .agentChataiGatewayError =
+                        chrome.runtime.lastError.message;
+                    return;
+                }
+
+                if (!response || !response.ok) {
+                    document.documentElement.dataset
+                        .agentChataiGatewayError =
+                        response?.message ||
+                        response?.error ||
+                        "unknown_error";
+                    return;
+                }
+
+                document.documentElement.dataset
+                    .agentChataiBackgroundAck = "1";
+
+                document.documentElement.dataset
+                    .agentChataiGatewayAck = "1";
+
+                document.documentElement.dataset
+                    .agentChataiSignatureVerified =
+                    response.signatureVerified === true
+                        ? "1"
+                        : "0";
+
+                document.documentElement.dataset
+                    .agentChataiGatewayResult =
+                    response.signatureVerified === true
+                        ? "received"
+                        : "rejected";
+
+                document.documentElement.dataset
+                    .agentChataiResultStatus =
+                    response.resultStatus || "";
+
+                if (
+                    response.signatureVerified === true &&
+                    response.resultContainer &&
+                    !response.confirmationRequired
+                ) {
+                    publishResultToChat(
+                        response.resultContainer
+                    );
+                }
+
+                if (
+                    response.confirmationRequired &&
+                    response.confirmationToken
+                ) {
+                    showConfirmationBar(response);
+                }
+            }
+        );
+    }
+}
+function inspectDocument() {
+    const commandContainers =
+        extractCommandContainers(
+            document.body?.innerText || ""
+        );
+
+    if (commandContainers.length > 0) {
+        reportCommandContainers(commandContainers);
+    }
+    const text =
+        document.body?.innerText ||
+        document.documentElement?.innerText ||
+        "";
+
+    reportContainers(
+        extractActionContainers(text)
+    );
+}
+
+inspectDocument();
+
+let inspectTimer = null;
+
+function scheduleInspectDocument() {
+    if (inspectTimer !== null) {
+        return;
+    }
+
+    inspectTimer = window.setTimeout(() => {
+        inspectTimer = null;
+        inspectDocument();
+    }, 50);
+}
+
+const observer = new MutationObserver(
+    (mutations) => {
+        for (const mutation of mutations) {
+            if (
+                (mutation.type === "childList" &&
+                    mutation.addedNodes.length > 0) ||
+                mutation.type === "characterData"
+            ) {
+                scheduleInspectDocument();
+                break;
+            }
+        }
+    }
+);
+
+observer.observe(
+    document.documentElement,
+    {
+        childList: true,
+        subtree: true,
+        characterData: true
+    }
+);
+
+scheduleInspectDocument();
+observer.observe(
+    document.documentElement,
+    {
+        childList: true,
+        subtree: true
+    }
+);
+
+
+
+
+
+
+
+
+

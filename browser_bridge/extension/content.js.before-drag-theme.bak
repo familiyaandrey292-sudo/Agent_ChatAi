@@ -1,36 +1,5 @@
 ﻿"use strict";
 
-chrome.runtime.onMessage.addListener(
-    (message, sender, sendResponse) => {
-        if (message?.type === "AGX_GET_BRIDGE_STATE") {
-            sendResponse({
-                ok: true,
-                enabled: commandBridgeEnabled === true
-            });
-            return false;
-        }
-
-        if (message?.type === "AGX_SET_BRIDGE_STATE") {
-            const enabled =
-                message.enabled === true;
-
-            if (enabled) {
-                openCommandPanel();
-            } else {
-                closeCommandPanel();
-            }
-
-            sendResponse({
-                ok: true,
-                enabled: commandBridgeEnabled === true
-            });
-
-            return false;
-        }
-    }
-);
-
-
 document.documentElement.dataset.agentChataiBridge = "loaded";
 
 const AGX_ACTION_PATTERN =
@@ -602,7 +571,6 @@ const COMMAND_PANEL_HISTORY_KEY =
 const COMMAND_PANEL_SIZE_KEY =
     "agentChataiCommandPanelSize";
 
-let commandBridgeEnabled = false;
 let commandPanel = null;
 let commandPanelCurrentDot = null;
 let commandPanelCurrentText = null;
@@ -728,128 +696,8 @@ function saveCommandPanelSize() {
     } catch (_) {}
 }
 
-const COMMAND_PANEL_POSITION_KEY =
-    "agentChataiCommandPanelPosition";
-
-const COMMAND_PANEL_THEME_KEY =
-    "agentChataiCommandPanelTheme";
-
-function loadCommandPanelPosition() {
-    const fallback = {
-        left: 16,
-        top: null
-    };
-
-    try {
-        const raw = localStorage.getItem(
-            COMMAND_PANEL_POSITION_KEY
-        );
-
-        if (!raw) {
-            return fallback;
-        }
-
-        const value = JSON.parse(raw);
-
-        return {
-            left: Number.isFinite(Number(value.left))
-                ? Number(value.left)
-                : fallback.left,
-
-            top:
-                value.top === null ||
-                value.top === undefined
-                    ? null
-                    : Number.isFinite(Number(value.top))
-                        ? Number(value.top)
-                        : fallback.top
-        };
-    } catch (_) {
-        return fallback;
-    }
-}
-
-function saveCommandPanelPosition(panel) {
-    if (!panel) {
-        return;
-    }
-
-    try {
-        localStorage.setItem(
-            COMMAND_PANEL_POSITION_KEY,
-            JSON.stringify({
-                left: panel.offsetLeft,
-                top: panel.offsetTop
-            })
-        );
-    } catch (_) {}
-}
-
-function loadCommandPanelTheme() {
-    try {
-        const stored =
-            localStorage.getItem(
-                COMMAND_PANEL_THEME_KEY
-            );
-
-        if (stored === "dark" || stored === "light") {
-            return stored;
-        }
-    } catch (_) {}
-
-    return window.matchMedia &&
-        window.matchMedia(
-            "(prefers-color-scheme: dark)"
-        ).matches
-        ? "dark"
-        : "light";
-}
-
-function saveCommandPanelTheme(theme) {
-    try {
-        localStorage.setItem(
-            COMMAND_PANEL_THEME_KEY,
-            theme
-        );
-    } catch (_) {}
-}
-function closeCommandPanel() {
-    commandBridgeEnabled = false;
-    if (typeof removeConfirmationBar === "function") {
-        removeConfirmationBar();
-    }
-    if (commandPanel) {
-        commandPanel.remove();
-    }
-    commandPanel = null;
-    commandPanelCurrentDot = null;
-    commandPanelCurrentText = null;
-    commandPanelHistoryBox = null;
-    document.documentElement.dataset.agentChataiBridgeEnabled = "0";
-}
-
-function openCommandPanel() {
-    commandBridgeEnabled = true;
-    document.documentElement.dataset.agentChataiBridgeEnabled = "1";
-    ensureCommandPanel();
-    inspectDocument();
-}
-
-function toggleCommandPanel() {
-    if (commandBridgeEnabled) {
-        closeCommandPanel();
-    } else {
-        openCommandPanel();
-    }
-}
-
 function ensureCommandPanel() {
-    if (
-        commandPanel &&
-        document.documentElement.contains(
-            commandPanel
-        )
-    ) {
+    if (commandPanel && document.documentElement.contains(commandPanel)) {
         return commandPanel;
     }
 
@@ -869,9 +717,6 @@ function ensureCommandPanel() {
     const size =
         loadCommandPanelSize();
 
-    const position =
-        loadCommandPanelPosition();
-
     const panel =
         document.createElement("div");
 
@@ -882,117 +727,31 @@ function ensureCommandPanel() {
         panel.style,
         {
             position: "fixed",
-            left: `${Math.max(
-                8,
-                position.left
-            )}px`,
-            top:
-                position.top === null
-                    ? "auto"
-                    : `${Math.max(
-                        8,
-                        position.top
-                    )}px`,
-            bottom:
-                position.top === null
-                    ? "16px"
-                    : "auto",
+            left: "16px",
+            bottom: "16px",
             zIndex: "2147483647",
             width: `${size.width}px`,
             height: `${size.height}px`,
             minWidth: "44px",
             minHeight: "44px",
-            maxWidth:
-                "calc(100vw - 16px)",
-            maxHeight:
-                "calc(100vh - 16px)",
+            maxWidth: "calc(100vw - 24px)",
+            maxHeight: "calc(100vh - 24px)",
+            resize: "both",
             overflow: "hidden",
             boxSizing: "border-box",
             padding: "10px",
+            border: "1px solid #888",
             borderRadius: "12px",
+            background: "#ffffff",
+            color: "#222222",
+            boxShadow:
+                "0 6px 24px rgba(0,0,0,.20)",
             fontFamily:
                 "system-ui, sans-serif",
             fontSize: "13px",
-            lineHeight: "1.35",
-            userSelect: "none",
-            resize: "none",
-            cursor: "default"
+            lineHeight: "1.35"
         }
     );
-
-    const applyTheme =
-        (theme) => {
-            const dark =
-                theme === "dark";
-
-            panel.style.setProperty(
-                "--agx-panel-bg",
-                dark
-                    ? "#1f2937"
-                    : "#ffffff"
-            );
-
-            panel.style.setProperty(
-                "--agx-panel-fg",
-                dark
-                    ? "#f9fafb"
-                    : "#222222"
-            );
-
-            panel.style.setProperty(
-                "--agx-panel-border",
-                dark
-                    ? "#4b5563"
-                    : "#9ca3af"
-            );
-
-            panel.style.setProperty(
-                "--agx-panel-divider",
-                dark
-                    ? "#374151"
-                    : "#e5e7eb"
-            );
-
-            panel.style.background =
-                "var(--agx-panel-bg)";
-
-            panel.style.color =
-                "var(--agx-panel-fg)";
-
-            panel.style.border =
-                "1px solid var(--agx-panel-border)";
-
-            panel.style.boxShadow =
-                dark
-                    ? "0 6px 24px rgba(0,0,0,.45)"
-                    : "0 6px 24px rgba(0,0,0,.20)";
-
-            if (
-                typeof themeButton !==
-                "undefined" &&
-                themeButton
-            ) {
-                themeButton.setAttribute(
-                    "aria-checked",
-                    dark
-                        ? "true"
-                        : "false"
-                );
-
-                themeButton.style.background =
-                    dark
-                        ? "#374151"
-                        : "#e5e7eb";
-
-                themeKnob.style.transform =
-                    dark
-                        ? "translateX(20px)"
-                        : "translateX(0)";
-
-                themeKnob.textContent =
-                    dark ? "☾" : "☀";
-            }
-        };
 
     const header =
         document.createElement("div");
@@ -1005,12 +764,10 @@ function ensureCommandPanel() {
         {
             display: "flex",
             alignItems: "center",
-            justifyContent: "space-between",
             gap: "8px",
             fontWeight: "600",
             marginBottom: "8px",
-            userSelect: "none",
-            cursor: "move"
+            userSelect: "none"
         }
     );
 
@@ -1022,64 +779,6 @@ function ensureCommandPanel() {
 
     title.className =
         "agentChataiCommandPanelTitle";
-
-    const themeButton =
-        document.createElement("button");
-
-    themeButton.type = "button";
-    themeButton.setAttribute(
-        "role",
-        "switch"
-    );
-    themeButton.setAttribute(
-        "aria-label",
-        "Переключить тему Agent ChatAI"
-    );
-
-    Object.assign(
-        themeButton.style,
-        {
-            position: "relative",
-            width: "44px",
-            height: "24px",
-            padding: "0",
-            margin: "0",
-            border: "0",
-            borderRadius: "999px",
-            cursor: "pointer",
-            flex: "0 0 auto"
-        }
-    );
-
-    const themeKnob =
-        document.createElement("span");
-
-    Object.assign(
-        themeKnob.style,
-        {
-            position: "absolute",
-            left: "3px",
-            top: "3px",
-            width: "18px",
-            height: "18px",
-            borderRadius: "50%",
-            background: "#ffffff",
-            color: "#111827",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: "12px",
-            lineHeight: "1",
-            boxShadow:
-                "0 1px 3px rgba(0,0,0,.25)",
-            transition:
-                "transform .15s ease"
-        }
-    );
-
-    themeButton.appendChild(
-        themeKnob
-    );
 
     const current =
         document.createElement("div");
@@ -1095,11 +794,9 @@ function ensureCommandPanel() {
             gap: "8px",
             padding: "6px 4px 8px",
             fontWeight: "600",
-            borderBottom:
-                "1px solid var(--agx-panel-divider)",
+            borderBottom: "1px solid #e5e7eb",
             marginBottom: "6px",
-            overflow: "hidden",
-            cursor: "move"
+            overflow: "hidden"
         }
     );
 
@@ -1107,6 +804,7 @@ function ensureCommandPanel() {
         document.createElement("span");
 
     dot.textContent = "●";
+
     dot.style.flex =
         "0 0 auto";
 
@@ -1123,9 +821,7 @@ function ensureCommandPanel() {
         "nowrap";
 
     current.appendChild(dot);
-    current.appendChild(
-        currentText
-    );
+    current.appendChild(currentText);
 
     const historyTitle =
         document.createElement("div");
@@ -1156,25 +852,12 @@ function ensureCommandPanel() {
         history.style,
         {
             overflowY: "auto",
-            height:
-                "calc(100% - 76px)",
+            height: "calc(100% - 76px)",
             paddingRight: "3px"
         }
     );
 
     header.appendChild(title);
-    const closeButton = document.createElement("button");
-
-closeButton.type = "button";
-closeButton.textContent = "×";
-closeButton.setAttribute("aria-label", "Закрыть Agent ChatAI");
-Object.assign(closeButton.style, { width: "24px", height: "24px", padding: "0", margin: "0 0 0 4px", border: "0", borderRadius: "6px", background: "transparent", color: "inherit", cursor: "pointer", fontSize: "20px", lineHeight: "20px", flex: "0 0 auto" });
-closeButton.className = "agentChataiCommandPanelClose";
-closeButton.addEventListener("click", (event) => { event.preventDefault(); event.stopPropagation(); closeCommandPanel(); });
-
-header.appendChild(themeButton);
-    header.appendChild(closeButton);
-
     panel.appendChild(header);
     panel.appendChild(current);
     panel.appendChild(historyTitle);
@@ -1182,584 +865,97 @@ header.appendChild(themeButton);
 
     document.body.appendChild(panel);
 
-    commandPanel = panel;
-    commandPanelCurrentDot = dot;
-    commandPanelCurrentText = currentText;
-    commandPanelHistoryBox = history;
+    commandPanel =
+        panel;
 
-    let currentTheme =
-        loadCommandPanelTheme();
+    commandPanelCurrentDot =
+        dot;
 
-    const setTheme =
-        (theme) => {
-            currentTheme =
-                theme === "dark"
-                    ? "dark"
-                    : "light";
+    commandPanelCurrentText =
+        currentText;
 
-            applyTheme(
-                currentTheme
-            );
+    commandPanelHistoryBox =
+        history;
 
-            saveCommandPanelTheme(
-                currentTheme
-            );
-        };
-
-    themeButton.addEventListener(
-        "click",
-        (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-
-            setTheme(
-                currentTheme === "dark"
-                    ? "light"
-                    : "dark"
-            );
-        }
-    );
-
-    applyTheme(
-        currentTheme
-    );
-
-    const clampPanel =
-        (
-            left,
-            top,
-            width,
-            height
-        ) => {
-            const minWidth = 44;
-            const minHeight = 44;
-
-            width =
-                Math.max(
-                    minWidth,
-                    Math.min(
-                        width,
-                        window.innerWidth - 8
-                    )
-                );
-
-            height =
-                Math.max(
-                    minHeight,
-                    Math.min(
-                        height,
-                        window.innerHeight - 8
-                    )
-                );
-
-            left =
-                Math.max(
-                    4,
-                    Math.min(
-                        left,
-                        window.innerWidth -
-                        width -
-                        4
-                    )
-                );
-
-            top =
-                Math.max(
-                    4,
-                    Math.min(
-                        top,
-                        window.innerHeight -
-                        height -
-                        4
-                    )
-                );
-
-            return {
-                left,
-                top,
-                width,
-                height
-            };
-        };
-
-    const saveGeometry =
-        () => {
-            try {
-                localStorage.setItem(
-                    COMMAND_PANEL_POSITION_KEY,
-                    JSON.stringify({
-                        left:
-                            panel.offsetLeft,
-                        top:
-                            panel.offsetTop
-                    })
-                );
-
-                localStorage.setItem(
-                    COMMAND_PANEL_SIZE_KEY,
-                    JSON.stringify({
-                        width:
-                            panel.offsetWidth,
-                        height:
-                            panel.offsetHeight
-                    })
-                );
-            } catch (_) {}
-        };
-
-    const dragStart =
-        (event) => {
-            if (
-                event.button !== 0 ||
-                event.target?.closest?.("button")
-            ) {
-                return;
-            }
-
-            event.preventDefault();
-
-            const startX =
-                event.clientX;
-
-            const startY =
-                event.clientY;
-
-            const startLeft =
-                panel.offsetLeft;
-
-            const startTop =
-                panel.offsetTop;
-
-            const move =
-                (moveEvent) => {
-                    const geometry =
-                        clampPanel(
-                            startLeft +
-                                moveEvent.clientX -
-                                startX,
-                            startTop +
-                                moveEvent.clientY -
-                                startY,
-                            panel.offsetWidth,
-                            panel.offsetHeight
-                        );
-
-                    panel.style.left =
-                        `${geometry.left}px`;
-
-                    panel.style.top =
-                        `${geometry.top}px`;
-
-                    panel.style.bottom =
-                        "auto";
-                };
-
-            const stop =
-                () => {
-                    window.removeEventListener(
-                        "pointermove",
-                        move
-                    );
-
-                    window.removeEventListener(
-                        "pointerup",
-                        stop
-                    );
-
-                    saveGeometry();
-                };
-
-            window.addEventListener(
-                "pointermove",
-                move
-            );
-
-            window.addEventListener(
-                "pointerup",
-                stop,
-                { once: true }
-            );
-        };
-
-    header.addEventListener(
-        "pointerdown",
-        dragStart
-    );
-
-    current.addEventListener(
-        "pointerdown",
-        dragStart
-    );
-
-    const handles = [
-        ["n", "ns-resize"],
-        ["s", "ns-resize"],
-        ["e", "ew-resize"],
-        ["w", "ew-resize"],
-        ["ne", "nesw-resize"],
-        ["sw", "nesw-resize"],
-        ["nw", "nwse-resize"],
-        ["se", "nwse-resize"]
-    ];
-
-    const handleStyle = {
-        position: "absolute",
-        zIndex: "3"
-    };
-
-    for (
-        const [direction, cursor]
-        of handles
-    ) {
-        const handle =
-            document.createElement("div");
-
-        handle.dataset.direction =
-            direction;
-
-        Object.assign(
-            handle.style,
-            handleStyle,
-            {
-                cursor,
-                userSelect: "none",
-                touchAction: "none"
-            }
-        );
-
-        if (direction === "n") {
-            Object.assign(
-                handle.style,
-                {
-                    top: "-4px",
-                    left: "8px",
-                    right: "8px",
-                    height: "9px"
-                }
-            );
+    const updateCompactMode = () => {
+        if (!commandPanel) {
+            return;
         }
 
-        if (direction === "s") {
-            Object.assign(
-                handle.style,
-                {
-                    bottom: "-4px",
-                    left: "8px",
-                    right: "8px",
-                    height: "9px"
-                }
+        const compact =
+            commandPanel.offsetWidth < 230;
+
+        const micro =
+            commandPanel.offsetWidth < 90;
+
+        const titleElement =
+            commandPanel.querySelector(
+                ".agentChataiCommandPanelTitle"
             );
+
+        const historyTitleElement =
+            commandPanel.querySelector(
+                ".agentChataiCommandPanelHistoryTitle"
+            );
+
+        const currentElement =
+            commandPanel.querySelector(
+                ".agentChataiCommandPanelCurrent"
+            );
+
+        if (titleElement) {
+            titleElement.style.display =
+                micro
+                    ? "none"
+                    : "block";
         }
 
-        if (direction === "e") {
-            Object.assign(
-                handle.style,
-                {
-                    right: "-4px",
-                    top: "8px",
-                    bottom: "8px",
-                    width: "9px"
-                }
-            );
-        }
-
-        if (direction === "w") {
-            Object.assign(
-                handle.style,
-                {
-                    left: "-4px",
-                    top: "8px",
-                    bottom: "8px",
-                    width: "9px"
-                }
-            );
-        }
-
-        if (direction === "ne") {
-            Object.assign(
-                handle.style,
-                {
-                    top: "-5px",
-                    right: "-5px",
-                    width: "12px",
-                    height: "12px"
-                }
-            );
-        }
-
-        if (direction === "nw") {
-            Object.assign(
-                handle.style,
-                {
-                    top: "-5px",
-                    left: "-5px",
-                    width: "12px",
-                    height: "12px"
-                }
-            );
-        }
-
-        if (direction === "se") {
-            Object.assign(
-                handle.style,
-                {
-                    bottom: "-5px",
-                    right: "-5px",
-                    width: "12px",
-                    height: "12px"
-                }
-            );
-        }
-
-        if (direction === "sw") {
-            Object.assign(
-                handle.style,
-                {
-                    bottom: "-5px",
-                    left: "-5px",
-                    width: "12px",
-                    height: "12px"
-                }
-            );
-        }
-
-        panel.appendChild(handle);
-
-        handle.addEventListener(
-            "pointerdown",
-            (event) => {
-                if (
-                    event.button !== 0
-                ) {
-                    return;
-                }
-
-                event.preventDefault();
-                event.stopPropagation();
-
-                const startX =
-                    event.clientX;
-
-                const startY =
-                    event.clientY;
-
-                const startLeft =
-                    panel.offsetLeft;
-
-                const startTop =
-                    panel.offsetTop;
-
-                const startWidth =
-                    panel.offsetWidth;
-
-                const startHeight =
-                    panel.offsetHeight;
-
-                const move =
-                    (moveEvent) => {
-                        let left =
-                            startLeft;
-
-                        let top =
-                            startTop;
-
-                        let width =
-                            startWidth;
-
-                        let height =
-                            startHeight;
-
-                        const dx =
-                            moveEvent.clientX -
-                            startX;
-
-                        const dy =
-                            moveEvent.clientY -
-                            startY;
-
-                        if (
-                            direction.includes("e")
-                        ) {
-                            width =
-                                startWidth +
-                                dx;
-                        }
-
-                        if (
-                            direction.includes("s")
-                        ) {
-                            height =
-                                startHeight +
-                                dy;
-                        }
-
-                        if (
-                            direction.includes("w")
-                        ) {
-                            width =
-                                startWidth -
-                                dx;
-
-                            left =
-                                startLeft +
-                                dx;
-                        }
-
-                        if (
-                            direction.includes("n")
-                        ) {
-                            height =
-                                startHeight -
-                                dy;
-
-                            top =
-                                startTop +
-                                dy;
-                        }
-
-                        const geometry =
-                            clampPanel(
-                                left,
-                                top,
-                                width,
-                                height
-                            );
-
-                        panel.style.left =
-                            `${geometry.left}px`;
-
-                        panel.style.top =
-                            `${geometry.top}px`;
-
-                        panel.style.bottom =
-                            "auto";
-
-                        panel.style.width =
-                            `${geometry.width}px`;
-
-                        panel.style.height =
-                            `${geometry.height}px`;
-                    };
-
-                const stop =
-                    () => {
-                        window.removeEventListener(
-                            "pointermove",
-                            move
-                        );
-
-                        window.removeEventListener(
-                            "pointerup",
-                            stop
-                        );
-
-                        saveGeometry();
-                    };
-
-                window.addEventListener(
-                    "pointermove",
-                    move
-                );
-
-                window.addEventListener(
-                    "pointerup",
-                    stop,
-                    { once: true }
-                );
-            }
-        );
-    }
-
-    const updateCompactMode =
-        () => {
-            if (!commandPanel) {
-                return;
-            }
-
-            const compact =
-                commandPanel.offsetWidth < 230;
-
-            const micro =
-                commandPanel.offsetWidth < 90;
-
-            title.style.display =
+        if (historyTitleElement) {
+            historyTitleElement.style.display =
                 compact || micro
                     ? "none"
                     : "block";
+        }
 
-            historyTitle.style.display =
-                compact || micro
-                    ? "none"
-                    : "block";
-
+        if (commandPanelHistoryBox) {
             commandPanelHistoryBox.style.display =
                 compact || micro
                     ? "none"
                     : "block";
+        }
 
-            header.style.justifyContent =
-                compact
-                    ? "flex-end"
-                    : "space-between";
-
-            current.style.justifyContent =
+        if (currentElement) {
+            currentElement.style.justifyContent =
                 micro
                     ? "center"
                     : "flex-start";
+        }
 
-            currentText.style.display =
+        if (commandPanelCurrentText) {
+            commandPanelCurrentText.style.display =
                 micro
                     ? "none"
                     : "block";
+        }
 
+        if (header) {
             header.style.display =
                 micro
                     ? "none"
                     : "flex";
+        }
 
-            saveGeometry();
-        };
+        saveCommandPanelSize();
+    };
 
-    if (
-        typeof ResizeObserver === "function"
-    ) {
+    if (typeof ResizeObserver === "function") {
         const observer =
-            new ResizeObserver(
-                updateCompactMode
-            );
+            new ResizeObserver(() => {
+                updateCompactMode();
+            });
 
         observer.observe(panel);
     }
-
-    window.addEventListener(
-        "resize",
-        () => {
-            const geometry =
-                clampPanel(
-                    panel.offsetLeft,
-                    panel.offsetTop,
-                    panel.offsetWidth,
-                    panel.offsetHeight
-                );
-
-            panel.style.left =
-                `${geometry.left}px`;
-
-            panel.style.top =
-                `${geometry.top}px`;
-
-            panel.style.bottom =
-                "auto";
-
-            panel.style.width =
-                `${geometry.width}px`;
-
-            panel.style.height =
-                `${geometry.height}px`;
-
-            saveGeometry();
-        }
-    );
 
     updateCompactMode();
 
@@ -1794,7 +990,7 @@ function renderCommandHistory() {
             {
                 color: meta.color,
                 padding: "4px 2px",
-                borderBottom: "1px solid var(--agx-panel-divider)",
+                borderBottom: "1px solid #f0f0f0",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap"
@@ -2077,10 +1273,6 @@ function reportCommandContainers(containers) {
 }
 
 function inspectDocument() {
-    if (!commandBridgeEnabled) {
-        return;
-    }
-
     const commandContainers =
         extractCommandContainers(
             document.body?.innerText || ""
@@ -2155,31 +1347,5 @@ observer.observe(
 
 
 
-
-
-
-
-
-document.documentElement.dataset.agentChataiBridgeEnabled = "0";
-
-function agentChataiBridgeShortcutHandler(event) {
-    if (
-        event.altKey &&
-        event.shiftKey &&
-        event.code === "KeyA" &&
-        !event.ctrlKey &&
-        !event.metaKey
-    ) {
-        event.preventDefault();
-        event.stopPropagation();
-        toggleCommandPanel();
-    }
-}
-
-window.addEventListener(
-    "keydown",
-    agentChataiBridgeShortcutHandler,
-    true
-);
 
 

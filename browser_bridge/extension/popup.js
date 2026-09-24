@@ -9,6 +9,119 @@ const pairButton =
 const status =
     document.getElementById("status");
 
+const bridgeToggle =
+    document.getElementById("bridgeToggle");
+
+if (bridgeToggle) {
+    bridgeToggle.title =
+        "Alt+Shift+A — включить или выключить Bridge";
+}
+
+async function getActiveTab() {
+    const tabs =
+        await chrome.tabs.query({
+            active: true,
+            currentWindow: true
+        });
+
+    return tabs[0] || null;
+}
+
+function updateBridgeToggle(enabled, available = true) {
+    if (!bridgeToggle) {
+        return;
+    }
+
+    bridgeToggle.disabled = !available;
+
+    bridgeToggle.setAttribute(
+        "aria-checked",
+        enabled ? "true" : "false"
+    );
+
+    bridgeToggle.setAttribute(
+        "aria-label",
+        enabled
+            ? "Выключить Agent ChatAI Bridge"
+            : "Включить Agent ChatAI Bridge"
+    );
+}
+
+async function refreshBridgeState() {
+    try {
+        const tab = await getActiveTab();
+
+        if (!tab?.id) {
+            updateBridgeToggle(false, false);
+            return;
+        }
+
+        const response =
+            await chrome.tabs.sendMessage(
+                tab.id,
+                {
+                    type: "AGX_GET_BRIDGE_STATE"
+                }
+            );
+
+        updateBridgeToggle(
+            response?.enabled === true,
+            true
+        );
+    } catch (_) {
+        updateBridgeToggle(false, false);
+    }
+}
+
+async function setBridgeState(enabled) {
+    const tab = await getActiveTab();
+
+    if (!tab?.id) {
+        updateBridgeToggle(false, false);
+        return;
+    }
+
+    try {
+        const response =
+            await chrome.tabs.sendMessage(
+                tab.id,
+                {
+                    type: "AGX_SET_BRIDGE_STATE",
+                    enabled: enabled === true
+                }
+            );
+
+        updateBridgeToggle(
+            response?.enabled === true,
+            true
+        );
+    } catch (error) {
+        updateBridgeToggle(false, false);
+
+        status.textContent =
+            "Bridge unavailable on this tab.";
+    }
+}
+
+bridgeToggle?.addEventListener(
+    "click",
+    async () => {
+        const enabled =
+            bridgeToggle.getAttribute(
+                "aria-checked"
+            ) === "true";
+
+        bridgeToggle.disabled = true;
+
+        try {
+            await setBridgeState(!enabled);
+        } finally {
+            bridgeToggle.disabled = false;
+        }
+    }
+);
+
+
 async function refreshStatus() {
     try {
         const identity =
@@ -104,3 +217,5 @@ pairButton.addEventListener(
 );
 
 refreshStatus().catch(() => {});
+
+

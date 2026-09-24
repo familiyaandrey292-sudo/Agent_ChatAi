@@ -239,6 +239,95 @@ chrome.runtime.onMessage.addListener(
 
         if (
             message?.type ===
+            "AGX_COMMAND_DETECTED"
+        ) {
+            const containers =
+                Array.isArray(
+                    message.containers
+                )
+                    ? message.containers
+                    : [];
+
+            if (containers.length === 0) {
+                sendResponse({
+                    ok: false,
+                    error:
+                        "empty_command"
+                });
+                return;
+            }
+
+            globalThis.AGXBrowserKeys
+                .authenticatedFetch(
+                    "/v1/command",
+                    {
+                        container:
+                            containers[0]
+                    }
+                )
+                .then(
+                    async (payload) => {
+                        const verified =
+                            await verifyResultSignature(
+                                payload.container,
+                                payload.signature
+                            );
+
+                        if (!verified) {
+                            throw new Error(
+                                "result_signature_invalid"
+                            );
+                        }
+
+                        const confirmationRequired =
+                            payload.status ===
+                            "confirmation_required";
+
+                        sendResponse({
+                            ok: true,
+                            resultContainer:
+                                payload.container,
+                            resultStatus:
+                                payload.status ||
+                                null,
+                            resultMessage:
+                                payload.message ||
+                                null,
+                            signatureVerified:
+                                true,
+                            confirmationRequired,
+                            confirmationToken:
+                                confirmationRequired
+                                    ? payload.confirmation_token ||
+                                      null
+                                    : null,
+                            tabId:
+                                sender.tab?.id ??
+                                null
+                        });
+                    }
+                )
+                .catch(
+                    (error) => {
+                        console.error(
+                            "[Agent ChatAI Browser Bridge]",
+                            error
+                        );
+
+                        sendResponse({
+                            ok: false,
+                            error:
+                                "gateway_command_rejected",
+                            message:
+                                error.message
+                        });
+                    }
+                );
+
+            return true;
+        }
+        if (
+            message?.type ===
             "AGX_CONFIRM_ACTION"
         ) {
             confirmAction(
@@ -305,3 +394,4 @@ chrome.runtime.onMessage.addListener(
         });
     }
 );
+

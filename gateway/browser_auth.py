@@ -7,6 +7,7 @@ import hashlib
 import secrets
 import time
 from pathlib import Path
+from collections.abc import Iterable
 from threading import Lock
 
 from cryptography.hazmat.primitives import serialization
@@ -51,7 +52,7 @@ class BrowserAuth:
 
     def __init__(
         self,
-        public_key: Ed25519PublicKey,
+        public_key: Ed25519PublicKey | Iterable[Ed25519PublicKey],
         *,
         challenge_ttl_seconds: int = 30,
     ) -> None:
@@ -60,7 +61,21 @@ class BrowserAuth:
                 "challenge_ttl_seconds must be positive"
             )
 
-        self.public_key = public_key
+        if isinstance(public_key, Ed25519PublicKey):
+            keys = (public_key,)
+        else:
+            keys = tuple(public_key)
+
+        if not keys or any(
+            not isinstance(key, Ed25519PublicKey)
+            for key in keys
+        ):
+            raise ValueError(
+                "Browser authentication keys must be Ed25519"
+            )
+
+        self.public_keys = keys
+        self.public_key = keys[0]
         self.challenge_ttl_seconds = challenge_ttl_seconds
 
         self._challenges: dict[str, float] = {}
@@ -81,6 +96,32 @@ class BrowserAuth:
 
         return cls(public_key)
 
+    @classmethod
+    def load_many(
+        cls,
+        paths: Iterable[str | Path],
+    ) -> "BrowserAuth":
+        keys: list[Ed25519PublicKey] = []
+
+        for item in paths:
+            path = Path(item)
+            public_key = serialization.load_pem_public_key(
+                path.read_bytes()
+            )
+
+            if not isinstance(public_key, Ed25519PublicKey):
+                raise ValueError(
+                    "Browser authentication key must be Ed25519"
+                )
+
+            keys.append(public_key)
+
+        if not keys:
+            raise ValueError(
+                "No browser authentication keys found"
+            )
+
+        return cls(keys)
     def create_challenge(self) -> str:
         challenge = _b64url_encode(
             secrets.token_bytes(32)
@@ -135,15 +176,26 @@ class BrowserAuth:
             body=body,
         )
 
-        try:
-            self.public_key.verify(
-                signature_bytes,
-                message,
-            )
-        except Exception as exc:
+        verified = False
+
+        for public_key in self.public_keys:
+            try:
+                public_key.verify(
+                    signature_bytes,
+                    message,
+                )
+                verified = True
+                break
+            except Exception:
+                continue
+
+        if not verified:
             raise ValueError(
                 "Authentication signature verification failed"
-            ) from exc
+            )
+
+        with self._lock:
+            self._cleanup_locked()
 
         with self._lock:
             self._cleanup_locked()

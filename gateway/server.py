@@ -1,4 +1,4 @@
-"""Local HTTP transport for the AGX Gateway."""
+﻿"""Local HTTP transport for the AGX Gateway."""
 
 from __future__ import annotations
 
@@ -16,7 +16,15 @@ from gateway.pairing import PairingManager
 from gateway.replay_store import SQLiteReplayStore
 from gateway.signing import ResultSigner
 from pc_agent.agent import PCAgent
-from protocol.MSGv1 import decode_action, decode_result, new_hmac_secret
+from protocol.MSGv1 import (
+    decode_action,
+    decode_result,
+    encode_action,
+    create_action,
+    new_hmac_secret,
+    new_session_id,
+)
+from protocol.command import decode_command
 
 
 class GatewayHTTPHandler(BaseHTTPRequestHandler):
@@ -228,6 +236,7 @@ class GatewayHTTPHandler(BaseHTTPRequestHandler):
 
             if self.path in {
                 "/v1/action",
+                "/v1/command",
                 "/v1/confirm",
                 "/v1/cancel",
             }:
@@ -236,6 +245,8 @@ class GatewayHTTPHandler(BaseHTTPRequestHandler):
             if self.path == "/v1/action":
                 self._handle_action(body)
 
+            elif self.path == "/v1/command":
+                self._handle_command(body)
             elif self.path == "/v1/confirm":
                 self._handle_confirm(body)
 
@@ -303,7 +314,9 @@ class GatewayHTTPHandler(BaseHTTPRequestHandler):
             )
 
             self.browser_auth = (
-                BrowserAuth.load(public_path)
+                BrowserAuth.load_many(
+                    self.pairing.public_key_paths
+                )
             )
 
             GatewayHTTPHandler.browser_auth = (
@@ -410,6 +423,105 @@ class GatewayHTTPHandler(BaseHTTPRequestHandler):
                 },
             )
 
+    def _handle_command(
+        self,
+        body: bytes,
+    ) -> None:
+        try:
+            payload = self._read_json_body(body)
+
+            container = payload.get(
+                "container"
+            )
+
+            if (
+                not isinstance(container, str)
+                or not container
+            ):
+                raise ValueError(
+                    "missing_container"
+                )
+
+            command = decode_command(container)
+
+            if self.executor is None:
+                self._send_json(
+                    503,
+                    {
+                        "error":
+                            "gateway_not_initialized"
+                    },
+                )
+                return
+
+            action = create_action(
+                command.action,
+                command.args,
+                session_id=new_session_id(),
+            )
+
+            action_container = encode_action(
+                action
+            )
+
+            result_container = (
+                self.executor.process(
+                    action_container
+                )
+            )
+
+            result = decode_result(
+                result_container,
+                self.executor.hmac_secret,
+            )
+
+            confirmation_token = None
+
+            if (
+                result.status
+                == "confirmation_required"
+            ):
+                if self.confirmations is None:
+                    self._send_json(
+                        503,
+                        {
+                            "error":
+                                "confirmation_store_not_initialized"
+                        },
+                    )
+                    return
+
+                confirmation_token = (
+                    self.confirmations.create(
+                        action_container
+                    )
+                )
+
+            self._result_response(
+                result_container,
+                confirmation_token=
+                    confirmation_token,
+            )
+
+        except ValueError as exc:
+            self._send_json(
+                409,
+                {
+                    "error":
+                        "command_rejected",
+                    "message": str(exc),
+                },
+            )
+
+        except Exception as exc:
+            self._send_json(
+                400,
+                {
+                    "error":
+                        "command_failed",
+                    "message": str(exc),
+                },
+            )
     def _handle_confirm(
         self,
         body: bytes,
@@ -626,11 +738,14 @@ if __name__ == "__main__":
         browser_public_key_path
     )
 
+    if pairing.paired:
+        pairing.ensure_pairing_code()
+
     browser_auth = None
 
     if pairing.paired:
-        browser_auth = BrowserAuth.load(
-            browser_public_key_path
+        browser_auth = BrowserAuth.load_many(
+            pairing.public_key_paths
         )
 
     gateway = Gateway(
@@ -699,15 +814,10 @@ if __name__ == "__main__":
         flush=True,
     )
 
-    if not pairing.paired:
+    if pairing.pairing_code:
         print(
             "BROWSER PAIRING CODE:",
             pairing.pairing_code,
-            flush=True,
-        )
-    else:
-        print(
-            "Browser Bridge authentication: paired",
             flush=True,
         )
 
@@ -717,3 +827,5 @@ if __name__ == "__main__":
         pass
     finally:
         server.server_close()
+
+

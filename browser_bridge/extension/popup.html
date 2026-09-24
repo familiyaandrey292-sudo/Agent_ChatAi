@@ -29,6 +29,64 @@
             margin-bottom: 10px;
         }
 
+        .bridge-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        .bridge-header h1 {
+            margin: 0;
+        }
+
+        .bridge-controls {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex: 0 0 auto;
+        }
+
+        .bridge-toggle {
+            position: relative;
+            width: 38px;
+            height: 22px;
+            padding: 0;
+            margin: 0;
+            border: 0;
+            border-radius: 999px;
+            background: #d1d5db;
+            cursor: pointer;
+            transition: background .15s ease;
+        }
+
+        .bridge-toggle-knob {
+            position: absolute;
+            left: 3px;
+            top: 3px;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #ffffff;
+            box-shadow: 0 1px 3px rgba(0,0,0,.25);
+            transition: transform .15s ease;
+        }
+
+        .bridge-toggle[aria-checked="true"] {
+            background: #16a34a;
+        }
+
+        .bridge-toggle[aria-checked="true"] .bridge-toggle-knob {
+            transform: translateX(16px);
+        }
+
+        .bridge-shortcut {
+            font-size: 9px;
+            color: #6b7280;
+            white-space: nowrap;
+        }
+
         button {
             width: 100%;
             padding: 8px;
@@ -43,7 +101,25 @@
     </style>
 </head>
 <body>
-    <h1>Agent ChatAI Bridge</h1>
+        <div class="bridge-header">
+        <h1>Agent ChatAI Bridge</h1>
+
+        <div class="bridge-controls">
+            <button
+                id="bridgeToggle"
+                type="button"
+                role="switch"
+                aria-checked="false"
+                aria-label="Включить Agent ChatAI Bridge"
+                class="bridge-toggle"
+                title="Alt+Shift+A — включить или выключить Bridge"
+            >
+                <span class="bridge-toggle-knob"></span>
+            </button>
+
+            
+        </div>
+    </div>
 
     <label for="code">
         Gateway pairing code
@@ -68,3 +144,5 @@
     <script src="popup.js"></script>
 </body>
 </html>
+
+
