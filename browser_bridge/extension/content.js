@@ -735,93 +735,25 @@ function findDiscoveryResultElement(
     );
 }
 
-
-    const wanted =
-        normalizeDiscoveryNumber(
-            expectedResult
+function capturePreSendResultElements() {
+    chatDiscovery.preSendResultElements =
+        findDiscoveryResultElements(
+            chatDiscovery.expectedResult
         );
 
-    if (!wanted) {
-        return null;
-    }
-
-    const candidates = [];
-
-    for (const element of collectDiscoveryElements()) {
-        if (
-            element === chatDiscovery.composer ||
-            element.closest?.(
-                '[data-agent-chatai-bridge-panel="1"]'
-            )
-        ) {
-            continue;
-        }
-
-        const style =
-            window.getComputedStyle(element);
-
-        const rect =
-            element.getBoundingClientRect();
-
-        if (
-            style.display === "none" ||
-            style.visibility === "hidden" ||
-            rect.width <= 0 ||
-            rect.height <= 0
-        ) {
-            continue;
-        }
-
-        const text =
-            element.innerText ||
-            element.textContent ||
-            "";
-
-        const numberCandidates =
-            String(text).match(
-                /\d[\d\s,._-]{5,}\d|\d{6,}/g
-            ) || [];
-
-        if (
-            numberCandidates.some(
-                (value) =>
-                    normalizeDiscoveryNumber(
-                        value
-                    ) === wanted
-            )
-        ) {
-            candidates.push(element);
-        }
-    }
-
-    candidates.sort(
-        (a, b) => {
-            const aLength =
-                (
-                    a.innerText ||
-                    a.textContent ||
-                    ""
-                ).length;
-
-            const bLength =
-                (
-                    b.innerText ||
-                    b.textContent ||
-                    ""
-                ).length;
-
-            if (aLength !== bLength) {
-                return aLength - bLength;
-            }
-
-            return (
-                a.getElementsByTagName("*").length -
-                b.getElementsByTagName("*").length
-            );
+    discoveryTrace(
+        "pre_send_result_elements",
+        {
+            count:
+                chatDiscovery.preSendResultElements.length,
+            elements:
+                chatDiscovery.preSendResultElements
+                    .slice(0, 20)
+                    .map(
+                        describeDiscoveryElement
+                    )
         }
     );
-
-    return candidates[0] || null;
 }
 
 function runChatDiscoveryScan() {
