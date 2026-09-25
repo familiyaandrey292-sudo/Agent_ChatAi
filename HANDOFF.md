@@ -845,6 +845,18 @@ Local verification after syncing commits `788b3962edc6b3ca5f1f704547f835bb0fa964
 
 The next step is real Brave discovery verification. The runtime correction specifically targets capture of the actual trusted send control when it is inside the composer's DOM wrapper.
 
+### Trusted submit-action capture — 2026-09-25
+
+The Qwen diagnostic showed a trusted `keydown` on the current textarea and a response from a previous message, while no pointer/click action had been recorded for the new challenge. This indicates that at least some chat submissions may occur through keyboard/form submission rather than a pointer click.
+
+Discovery now also listens for the real trusted DOM `submit` event in capture phase. When `event.submitter` is present, that actual submitted control is recorded as the learned send button. The trace also records `key`, `code`, `pointerType`, `button`, and `submitter` metadata for diagnosis.
+
+This does not inspect button state and does not synthesize a user action.
+
+Commits:
+- `cebcda593801f40793eb338e0ce1259db8a5247a` — trusted submit capture
+- `02b8e9a4a03dbe371c95784a228cd1d82e44f336` — submit/keyboard trace tests
+
 ### Discovery trace finding and window-level instrumentation — 2026-09-25
 
 The first diagnostic run on Claude established:
