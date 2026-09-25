@@ -865,6 +865,29 @@ No backend redesign is needed unless a concrete browser E2E failure proves a ser
 **Continuity rule: this HANDOFF is the first document to read after context loss.**
 
 
+### Latest discovery send-capture correction — 2026-09-25
+
+Real Brave discovery reached `Поле найдено`, showing that the composer capture works but the trusted send action was not being accepted.
+
+The cause was in `getTrustedUserActionTarget()`: it rejected every event-path element contained by the learned composer. Some chat UIs place the send control inside the same DOM wrapper as the composer, so a real trusted click could be discarded.
+
+The correction preserves the required design principle:
+
+**actual trusted user action → event.composedPath() → capture the actual send control**
+
+It does not inspect enabled/disabled/visible/clickable state.
+
+The helper now:
+- accepts semantic send controls found on the real trusted event path
+- also supports non-semantic controls through the same event path
+- stops at the composer or an editable element so an ordinary click in the input is not treated as send
+
+Related commits:
+- `788b3962edc6b3ca5f1f704547f835bb0fa9643a` — runtime fix
+- `07606b5875231224cea8387c8391e7f0ba2ddbe6` — static test update
+
+Full suite and Doctor must be rerun after local sync.
+
 ### Verification checkpoint — 2026-09-25
 
 After correcting the stale action-driven discovery static test:
