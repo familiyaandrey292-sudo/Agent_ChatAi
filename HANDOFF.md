@@ -756,6 +756,22 @@ After the correction to identify the AI answer field by the Bridge-computed prod
 - browser-side behavior still requires real Claude verification
 - next required runtime check: Doctor
 
+### Latest universal send-control discovery fix
+
+The Claude/Qwen learning test showed that the composer was captured but the state stayed at `Поле найдено` after the user clicked the chat Send control.
+
+The weak point was the assumption that the clicked control must be represented by `<button>`, `input[type=submit]`, or `role=button`. Real chat UIs can dispatch the event from an inner `span`/SVG while the actionable control is an ancestor in the event's composed path.
+
+Commit `a9e88e9a08b3b8645f02697d7812d8451eb8fcc4` updates discovery to inspect `event.composedPath()`, recognize generic interactive ancestors using semantics such as pointer cursor/ARIA/test attributes/tabindex, verify proximity to the learned composer, and also listen for `pointerup` as a fallback.
+
+Commit `1338425316cb7ca360fc9871bc4f2019d421899c` adds static coverage for this generic send-control path.
+
+The final discovery algorithm remains:
+
+**real composer → real clicked send control → Bridge-computed X×Y result → new answer field**
+
+Browser verification is still pending after this latest change.
+
 ## 20. Current project point — START HERE
 
 Backend/protocol/security are already in a verified state:
