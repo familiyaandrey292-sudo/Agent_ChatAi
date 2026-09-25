@@ -28,6 +28,7 @@ const discoveryHelp =
     document.getElementById("discoveryHelp");
 
 let currentDiscoveryPhrase = "";
+let currentDiscoveryResult = "";
 
 if (bridgeToggle) {
     bridgeToggle.title =
@@ -43,7 +44,7 @@ function randomSevenDigitNumber() {
     );
 }
 
-function makeDiscoveryPhrase() {
+function makeDiscoveryChallenge() {
     let x = randomSevenDigitNumber();
     let y = randomSevenDigitNumber();
 
@@ -51,12 +52,33 @@ function makeDiscoveryPhrase() {
         y = randomSevenDigitNumber();
     }
 
-    return (
-        "ИИ сколько будет " +
-        x +
-        " умножить на " +
-        y
-    );
+    return {
+        phrase:
+            "ИИ сколько будет " +
+            x +
+            " умножить на " +
+            y,
+        result:
+            (
+                BigInt(x) *
+                BigInt(y)
+            ).toString()
+    };
+}
+
+function setDiscoveryChallenge(
+    challenge
+) {
+    currentDiscoveryPhrase =
+        challenge?.phrase || "";
+
+    currentDiscoveryResult =
+        challenge?.result || "";
+
+    if (discoveryPhrase) {
+        discoveryPhrase.value =
+            currentDiscoveryPhrase;
+    }
 }
 
 function setDiscoveryPhrase(phrase) {
@@ -184,12 +206,14 @@ async function getDiscoveryState() {
             );
 
         if (response?.phrase) {
-            setDiscoveryPhrase(
-                response.phrase
-            );
+            setDiscoveryChallenge({
+                phrase: response.phrase,
+                result:
+                    response.expectedResult || ""
+            });
         } else if (!currentDiscoveryPhrase) {
-            setDiscoveryPhrase(
-                makeDiscoveryPhrase()
+            setDiscoveryChallenge(
+                makeDiscoveryChallenge()
             );
         }
 
@@ -215,8 +239,8 @@ async function setDiscoveryListening(
     try {
         if (listening) {
             if (!currentDiscoveryPhrase) {
-                setDiscoveryPhrase(
-                    makeDiscoveryPhrase()
+                setDiscoveryChallenge(
+                    makeDiscoveryChallenge()
                 );
             }
 
@@ -227,7 +251,9 @@ async function setDiscoveryListening(
                         type:
                             "AGX_CHAT_DISCOVERY_START",
                         phrase:
-                            currentDiscoveryPhrase
+                            currentDiscoveryPhrase,
+                        expectedResult:
+                            currentDiscoveryResult
                     }
                 );
 
@@ -405,8 +431,8 @@ async function refreshStatus() {
     }
 }
 
-setDiscoveryPhrase(
-    makeDiscoveryPhrase()
+setDiscoveryChallenge(
+    makeDiscoveryChallenge()
 );
 
 copyDiscovery?.addEventListener(
