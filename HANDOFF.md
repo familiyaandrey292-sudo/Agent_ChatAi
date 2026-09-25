@@ -845,6 +845,32 @@ Local verification after syncing commits `788b3962edc6b3ca5f1f704547f835bb0fa964
 
 The next step is real Brave discovery verification. The runtime correction specifically targets capture of the actual trusted send control when it is inside the composer's DOM wrapper.
 
+### Discovery diagnostic trace — 2026-09-25
+
+Because real Brave discovery repeatedly remained at `Поле найдено`, diagnostic tracing was added before making further behavioral guesses.
+
+The discovery trace records:
+- discovery start/phase transitions
+- real `input`, `paste`, and `focusin` events
+- trusted `pointerdown`, `pointerup`, and `click` events
+- `event.isTrusted`
+- the event `composedPath()` (compact DOM element descriptors)
+- composer capture / send-control capture or rejection
+- the pre-send page snapshot metadata
+- periodic result-search attempts
+- the exact DOM element where the expected `X×Y` result is found
+
+The trace is intentionally capped at 250 records and does not store the full page text or raw chat transcript.
+
+Popup now has **Скопировать диагностику**, which requests the current discovery state/trace from the active tab and copies a JSON diagnostic bundle to the Windows clipboard.
+
+Commits:
+- `32522de7a3958fba7149c7d9e95991cae22e3912` — content trace instrumentation
+- `5693d62c6c6fb97ecd94bea4982956ec4e601b1e` — diagnostics copy button
+- `51c03c34f5a411a1a033943dcd468467d881faaf` — diagnostics clipboard export
+- `833c8566d9cfe2685334aca06479618a7ffd6733` — discovery trace static tests
+
+Required next step: sync locally, run full tests + Doctor, then perform one discovery run and copy the diagnostic JSON from the popup for analysis.
 ## 20. Current project point — START HERE
 
 Backend/protocol/security are in a verified state, and the current local code checkpoint has passed the full validation suite:
