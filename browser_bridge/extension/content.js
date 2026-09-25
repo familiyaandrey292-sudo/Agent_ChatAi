@@ -312,21 +312,106 @@ function getDiscoveryEditableTarget(
 
 function getDiscoveryEventElement(
     event,
-    selector
+    selector,
+    composer = null
 ) {
     const path =
         event?.composedPath?.() || [];
 
+    const interactiveCandidates = [];
+
     for (const item of path) {
         if (
-            item instanceof Element &&
+            !(item instanceof Element)
+        ) {
+            continue;
+        }
+
+        if (
             item.matches?.(selector)
         ) {
-            return item;
+            interactiveCandidates.push(item);
+            continue;
+        }
+
+        const tag =
+            item.tagName?.toLowerCase() || "";
+
+        const role =
+            item.getAttribute?.("role") || "";
+
+        const aria =
+            item.getAttribute?.("aria-label") ||
+            item.getAttribute?.("title") ||
+            item.getAttribute?.("data-testid") ||
+            item.getAttribute?.("data-qa") ||
+            "";
+
+        let pointer = false;
+
+        try {
+            pointer =
+                window.getComputedStyle(
+                    item
+                ).cursor === "pointer";
+        } catch (_) {}
+
+        const tabindex =
+            item.getAttribute?.("tabindex");
+
+        if (
+            tag === "button" ||
+            tag === "input" ||
+            role === "button" ||
+            aria ||
+            pointer ||
+            (
+                tabindex !== null &&
+                tabindex !== "-1"
+            )
+        ) {
+            interactiveCandidates.push(item);
         }
     }
 
-    return event?.target?.closest?.(
+    for (const candidate
+        of interactiveCandidates) {
+        if (
+            candidate !== composer &&
+            isDiscoverySendButton(
+                candidate,
+                composer
+            )
+        ) {
+            return candidate;
+        }
+    }
+
+    const target =
+        event?.target instanceof Element
+            ? event.target
+            : null;
+
+    if (target) {
+        try {
+            const targetStyle =
+                window.getComputedStyle(
+                    target
+                );
+
+            if (
+                targetStyle.cursor === "pointer" &&
+                isDiscoverySendButton(
+                    target,
+                    composer
+                )
+            ) {
+                return target;
+            }
+        } catch (_) {}
+    }
+
+    return target?.closest?.(
         selector
     ) || null;
 }
@@ -935,7 +1020,8 @@ function handleChatDiscoveryClick(
     const button =
         getDiscoveryEventElement(
             event,
-            'button, [role="button"], input[type="submit"]'
+            'button, [role="button"], input[type="submit"]',
+            chatDiscovery.composer
         );
 
     if (
@@ -3294,6 +3380,12 @@ document.addEventListener(
 
 document.addEventListener(
     "click",
+    handleChatDiscoveryClick,
+    true
+);
+
+document.addEventListener(
+    "pointerup",
     handleChatDiscoveryClick,
     true
 );
