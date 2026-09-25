@@ -93,6 +93,7 @@ const chatDiscovery = {
     composer: null,
     sendButton: null,
     messageElement: null,
+    preSendResultElements: [],
     trace: [],
     traceStartedAt: null,
     scanCount: 0
@@ -633,9 +634,108 @@ function collectDiscoveryElements() {
     ];
 }
 
+function findDiscoveryResultElements(
+    expectedResult
+) {
+    const wanted =
+        normalizeDiscoveryNumber(
+            expectedResult
+        );
+
+    if (!wanted) {
+        return [];
+    }
+
+    const candidates = [];
+
+    for (const element of collectDiscoveryElements()) {
+        if (
+            element === chatDiscovery.composer ||
+            element.closest?.(
+                '[data-agent-chatai-bridge-panel="1"]'
+            )
+        ) {
+            continue;
+        }
+
+        const style =
+            window.getComputedStyle(element);
+
+        const rect =
+            element.getBoundingClientRect();
+
+        if (
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            rect.width <= 0 ||
+            rect.height <= 0
+        ) {
+            continue;
+        }
+
+        const text =
+            element.innerText ||
+            element.textContent ||
+            "";
+
+        const numberCandidates =
+            String(text).match(
+                /\d[\d\s,._-]{5,}\d|\d{6,}/g
+            ) || [];
+
+        if (
+            numberCandidates.some(
+                (value) =>
+                    normalizeDiscoveryNumber(
+                        value
+                    ) === wanted
+            )
+        ) {
+            candidates.push(element);
+        }
+    }
+
+    candidates.sort(
+        (a, b) => {
+            const aLength =
+                (
+                    a.innerText ||
+                    a.textContent ||
+                    ""
+                ).length;
+
+            const bLength =
+                (
+                    b.innerText ||
+                    b.textContent ||
+                    ""
+                ).length;
+
+            if (aLength !== bLength) {
+                return aLength - bLength;
+            }
+
+            return (
+                a.getElementsByTagName("*").length -
+                b.getElementsByTagName("*").length
+            );
+        }
+    );
+
+    return candidates;
+}
+
 function findDiscoveryResultElement(
     expectedResult
 ) {
+    return (
+        findDiscoveryResultElements(
+            expectedResult
+        )[0] || null
+    );
+}
+
+
     const wanted =
         normalizeDiscoveryNumber(
             expectedResult
@@ -756,25 +856,46 @@ function runChatDiscoveryScan() {
         return false;
     }
 
-    if (
-        before.indexOf(expected) >= 0
-    ) {
-        discoveryTrace(
-            "scan",
-            {
-                reason:
-                    "expected_result_already_present_before_send",
-                scan:
-                    chatDiscovery.scanCount
-            }
-        );
-        return false;
-    }
-
-    const element =
-        findDiscoveryResultElement(
+    const candidates =
+        findDiscoveryResultElements(
             chatDiscovery.expectedResult
         );
+
+    const element =
+        candidates.find(
+            (candidate) =>
+                !chatDiscovery.preSendResultElements.includes(
+                    candidate
+                )
+        ) || null;
+
+    if (
+        !element &&
+        candidates.length > 0 &&
+        chatDiscovery.preSendResultElements.length > 0
+    ) {
+        if (
+            chatDiscovery.scanCount === 1 ||
+            chatDiscovery.scanCount % 10 === 0
+        ) {
+            discoveryTrace(
+                "scan",
+                {
+                    reason:
+                        "only_preexisting_result_elements_found",
+                    scan:
+                        chatDiscovery.scanCount,
+                    expectedResult:
+                        expected,
+                    baselineCount:
+                        chatDiscovery.preSendResultElements.length,
+                    candidateCount:
+                        candidates.length
+                }
+            );
+        }
+        return false;
+    }
 
     if (!element) {
         if (
@@ -881,6 +1002,7 @@ function startChatDiscovery(
     chatDiscovery.trace = [];
     chatDiscovery.traceStartedAt = null;
     chatDiscovery.scanCount = 0;
+    chatDiscovery.preSendResultElements = [];
 
     discoveryTrace(
         "start_requested",
@@ -970,6 +1092,27 @@ function getChatDiscoveryState() {
         trace:
             chatDiscovery.trace.slice()
     };
+}
+
+function capturePreSendResultElements() {
+    chatDiscovery.preSendResultElements =
+        findDiscoveryResultElements(
+            chatDiscovery.expectedResult
+        );
+
+    discoveryTrace(
+        "pre_send_result_elements",
+        {
+            count:
+                chatDiscovery.preSendResultElements.length,
+            elements:
+                chatDiscovery.preSendResultElements
+                    .slice(0, 20)
+                    .map(
+                        describeDiscoveryElement
+                    )
+        }
+    );
 }
 
 function handleChatDiscoveryInput(
@@ -1222,6 +1365,8 @@ function handleChatDiscoveryClick(
         normalizeChatDiscoveryText(
             document.body?.innerText || ""
         );
+
+    capturePreSendResultElements();
 
     discoveryTrace(
         "pre_send_snapshot",
