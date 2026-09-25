@@ -428,7 +428,7 @@ Full Python test suite:
 
 Last known full run:
 
-`Ran 90 tests in 7.732s`
+`Ran 92 tests in 7.732s`
 
 `OK`
 
@@ -648,7 +648,7 @@ Commit `87b3b395de297c0520b76fd154e9463a3c85ea68` improves discovery of the user
 
 After this fix the local suite was run again:
 
-- **90 tests, OK**
+- **92 tests, OK**
 - Browser discovery static tests included
 - No backend changes
 
@@ -695,11 +695,25 @@ After commit `7ec085181546991ebc72fc182ab4ac484df36daf` and the new discovery te
 - Replay database: present
 - Audit JSONL: valid
 
+### Latest 92-test verification
+
+After the dynamic DOM / Shadow DOM discovery fixes:
+
+- local Git pull: up to date
+- **92 tests, OK**
+- **DOCTOR: PASS**
+- JavaScript syntax: PASS
+- Python compilation: PASS
+- Gateway health: PASS
+- Browser Auth: paired/enabled
+
+Browser verification on Claude is the next step.
+
 ## 20. Current project point — START HERE
 
 Backend/protocol/security are already in a verified state:
 
-**90/90 tests + DOCTOR: PASS**
+**92/92 tests + DOCTOR: PASS**
 
 The most important already-proven path is:
 
