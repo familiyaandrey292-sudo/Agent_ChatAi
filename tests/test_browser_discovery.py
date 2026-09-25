@@ -209,6 +209,49 @@ class TestBrowserDiscoveryStatic(unittest.TestCase):
             handler
         )
 
+    def test_discovery_has_trace_instrumentation(self):
+        for marker in (
+            "CHAT_DISCOVERY_TRACE_LIMIT",
+            "discoveryTrace(",
+            "discoveryTraceEventPath",
+            '"input_event"',
+            '"user_action_event"',
+            '"user_action_ignored"',
+            '"send_control_captured"',
+            '"pre_send_snapshot"',
+            '"result_found"',
+            '"pointerdown"',
+            '"pointerup"',
+            '"click"',
+        ):
+            self.assertIn(
+                marker,
+                self.content_js
+            )
+
+        self.assertIn(
+            "copyDiscoveryDiagnostics",
+            self.popup_html
+        )
+        self.assertIn(
+            "copyDiscoveryDiagnosticsText",
+            self.popup_js
+        )
+
+    def test_discovery_state_reports_trace(self):
+        self.assertIn(
+            "traceStartedAt",
+            self.content_js
+        )
+        self.assertIn(
+            "traceCount",
+            self.content_js
+        )
+        self.assertIn(
+            "trace:",
+            self.content_js
+        )
+
     def test_result_submission_prefers_learned_send_button(self):
         pattern = re.compile(
             r"function\s+findChatSubmitButton\(composer\).*?"
