@@ -697,6 +697,41 @@ function handleChatDiscoveryInput(
     );
 }
 
+function collectDiscoveryEditables(root = document) {
+    const selector =
+        '[contenteditable="true"], textarea, input[type="text"], [role="textbox"]';
+
+    const found = [];
+
+    const visit = (scope) => {
+        if (!scope?.querySelectorAll) {
+            return;
+        }
+
+        for (const element of scope.querySelectorAll(selector)) {
+            if (isVisibleEditable(element)) {
+                found.push(element);
+            }
+
+            if (element.shadowRoot) {
+                visit(element.shadowRoot);
+            }
+        }
+
+        for (const element of scope.querySelectorAll("*")) {
+            if (element.shadowRoot) {
+                visit(element.shadowRoot);
+            }
+        }
+    };
+
+    visit(root);
+
+    return [
+        ...new Set(found)
+    ];
+}
+
 function scanForDiscoveryInput() {
     if (
         !chatDiscovery.active ||
@@ -706,11 +741,8 @@ function scanForDiscoveryInput() {
         return false;
     }
 
-    const candidates = [
-        ...document.querySelectorAll(
-            '[contenteditable="true"], textarea, input[type="text"], [role="textbox"]'
-        )
-    ].filter(isVisibleEditable);
+    const candidates =
+        collectDiscoveryEditables();
 
     for (const composer of candidates) {
         if (
@@ -3073,26 +3105,39 @@ function scheduleDiscoveryPoll() {
 
 document.addEventListener(
     "paste",
-    () => {
+    (event) => {
+        if (
+            !chatDiscovery.active ||
+            chatDiscovery.phase !==
+                "wait_input"
+        ) {
+            return;
+        }
+
+        handleChatDiscoveryInput(event);
+
         window.setTimeout(
             () => {
-                if (
-                    chatDiscovery.active &&
-                    chatDiscovery.phase ===
-                        "wait_input"
-                ) {
-                    const composer =
-                        findChatComposer();
-
-                    if (composer) {
-                        handleChatDiscoveryInput({
-                            target: composer
-                        });
-                    }
-                }
+                scanForDiscoveryInput();
             },
             0
         );
+    },
+    true
+);
+
+document.addEventListener(
+    "focusin",
+    (event) => {
+        if (
+            !chatDiscovery.active ||
+            chatDiscovery.phase !==
+                "wait_input"
+        ) {
+            return;
+        }
+
+        handleChatDiscoveryInput(event);
     },
     true
 );
