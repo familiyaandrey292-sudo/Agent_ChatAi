@@ -614,6 +614,21 @@ This is intentionally site-agnostic: it learns from the real DOM interaction rat
 
 
 
+### Latest Claude discovery input-capture fix
+
+Real Claude verification still showed discovery stuck at `Слушает`. The likely weak point was capturing the actual composer element in dynamic/shadow-DOM chat UIs.
+
+Commit `9fbe11051063bcc603bc51aab38e6864e9b600ef` changes discovery to:
+
+- use the real `paste` event target and `event.composedPath()`
+- also observe `focusin`
+- poll visible editable controls
+- traverse open Shadow DOM roots when collecting editable controls
+
+Commit `e2696fa9aaf36e2b39c954725c75594550394071` adds static tests for the real event-target path and Shadow DOM support.
+
+The browser behavior is still pending verification on Claude after extension reload.
+
 ### Latest discovery robustness fix
 
 Commit `7ec085181546991ebc72fc182ab4ac484df36daf` hardens universal discovery for chat UIs with dynamic DOM/shadow-DOM behavior:
