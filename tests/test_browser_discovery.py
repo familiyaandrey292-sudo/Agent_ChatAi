@@ -238,6 +238,26 @@ class TestBrowserDiscoveryStatic(unittest.TestCase):
             self.popup_js
         )
 
+    def test_discovery_traces_submit_actions(self):
+        for marker in (
+            "handleChatDiscoverySubmit",
+            '"submit_event"',
+            "event?.submitter",
+            '"submitter"',
+            '"pointerType"',
+            "event?.key",
+        ):
+            self.assertIn(
+                marker,
+                self.content_js
+            )
+
+        self.assertIn(
+            'document.addEventListener(
+    "submit"',
+            self.content_js
+        )
+
     def test_discovery_traces_window_user_events(self):
         for marker in (
             "traceDiscoveryUserEvent",
