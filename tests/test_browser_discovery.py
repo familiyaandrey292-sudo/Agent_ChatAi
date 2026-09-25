@@ -271,7 +271,7 @@ class TestBrowserDiscoveryStatic(unittest.TestCase):
             '"submit_event"',
             "event?.submitter",
             "submitter:",
-            '"pointerType"',
+            "pointerType:",
             "event?.key",
         ):
             self.assertIn(
