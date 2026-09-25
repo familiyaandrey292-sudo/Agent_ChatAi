@@ -1115,3 +1115,25 @@ Universal Browser Discovery was manually verified in Brave on three real AI chat
 This confirms the action-driven discovery path is functioning across these sites without adding site-specific send-button selectors for the discovery mechanism.
 
 Next stage: perform the true AI-generated `AGX1:C` E2E. The test AI chat must generate the command into the rendered chat; do not manually paste the `AGX1:C` container. Then verify Bridge execution, signed `AGX1:R` insertion, automatic result submission, and loop/reprocessing protection.
+
+### DeepSeek false-positive discovery fix — 2026-09-25
+
+The supplied DeepSeek trace exposed a real discovery weakness:
+- the trusted pointer path contained a `div[role="button"]` under a `DeepThinkSearch` area;
+- the code immediately treated that control as the send button and entered `wait_message`;
+- the expected result `5048102980176` never appeared during subsequent scans.
+
+The discovery algorithm was corrected so a trusted control is first a **send candidate**, not an accepted send button. The candidate is accepted only after submission evidence:
+- trusted native `submit` with `event.submitter`, or
+- the composer changes after the user action, or
+- a new rendered copy of the test phrase appears outside the pre-send baseline.
+
+A candidate with no submission evidence is rejected and discovery returns to waiting for the next real user action. This preserves the no-button-state-heuristic requirement and allows a wrong mode/search/control click to be ignored.
+
+Runtime fix commit:
+- `bac82d790648cf043f1b58e2de7501779d772655`
+
+Regression test commit:
+- `e40a1fdebd1728d0ae64f2534b91ad254e63927c`
+
+Next step: sync locally, run the full suite + Doctor, then repeat DeepSeek discovery.
