@@ -3507,6 +3507,42 @@ function traceDiscoveryUserEvent(event) {
                 event?.type || "",
             isTrusted:
                 event?.isTrusted === true,
+            key:
+                event?.key || "",
+            code:
+                event?.code || "",
+            pointerType:
+                event?.pointerType || "",
+            button:
+                typeof event?.button === "number"
+                    ? event.button
+                    : null,
+            target:
+                describeDiscoveryElement(
+                    event?.target
+                ),
+            submitter:
+                describeDiscoveryElement(
+                    event?.submitter
+                ),
+            path:
+                discoveryTraceEventPath(
+                    event
+                )
+        }
+    );
+}
+
+function handleChatDiscoverySubmit(event) {
+    discoveryTrace(
+        "submit_event",
+        {
+            isTrusted:
+                event?.isTrusted === true,
+            submitter:
+                describeDiscoveryElement(
+                    event?.submitter
+                ),
             target:
                 describeDiscoveryElement(
                     event?.target
@@ -3516,6 +3552,77 @@ function traceDiscoveryUserEvent(event) {
                     event
                 )
         }
+    );
+
+    if (
+        !chatDiscovery.active ||
+        chatDiscovery.phase !==
+            "wait_send" ||
+        event?.isTrusted !== true ||
+        !event?.submitter
+    ) {
+        return;
+    }
+
+    const actionTarget =
+        event.submitter;
+
+    chatDiscovery.sendButton =
+        actionTarget;
+
+    discoveryTrace(
+        "send_control_captured",
+        {
+            eventType: "submit",
+            sendButton:
+                describeDiscoveryElement(
+                    actionTarget
+                )
+        }
+    );
+
+    chatDiscovery.preSendPageText =
+        normalizeChatDiscoveryText(
+            document.body?.innerText || ""
+        );
+
+    discoveryTrace(
+        "pre_send_snapshot",
+        {
+            pageTextLength:
+                chatDiscovery.preSendPageText.length,
+            expectedAlreadyPresent:
+                normalizeDiscoveryNumber(
+                    chatDiscovery.preSendPageText
+                ).indexOf(
+                    normalizeDiscoveryNumber(
+                        chatDiscovery.expectedResult
+                    )
+                ) >= 0
+        }
+    );
+
+    chatDiscoveryProfile = {
+        ...chatDiscoveryProfile,
+        composerSelector:
+            getElementSelector(
+                chatDiscovery.composer
+            ),
+        sendButtonSelector:
+            getElementSelector(
+                actionTarget
+            )
+    };
+
+    saveChatDiscoveryProfile();
+
+    setChatDiscoveryPhase(
+        "wait_message"
+    );
+
+    window.setTimeout(
+        runChatDiscoveryScan,
+        50
     );
 }
 
@@ -3535,6 +3642,12 @@ for (const eventName of [
         true
     );
 }
+
+document.addEventListener(
+    "submit",
+    handleChatDiscoverySubmit,
+    true
+);
 
 document.addEventListener(
     "input",
