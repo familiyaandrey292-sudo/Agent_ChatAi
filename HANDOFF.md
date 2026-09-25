@@ -21,8 +21,8 @@ GitHub repository:
 Main branch:
 `main`
 
-Latest confirmed repository commit at this handoff:
-`91f92f070d7816b6f57466f93a95bd909249c5e5`
+Latest confirmed code/test commit before this handoff update:
+`964c36d9daed6bcd8355634a908f3aed96591651`
 
 Date of this handoff:
 **2026-09-25**
@@ -424,11 +424,11 @@ Do not prematurely ask for this before the automatic-submit code path is ready.
 
 Full Python test suite:
 
-**83 tests — OK**
+**98 tests — OK**
 
-Last known full run:
+Latest full run:
 
-`Ran 95 tests in 7.732s`
+`Ran 98 tests in 7.672s`
 
 `OK`
 
@@ -466,6 +466,11 @@ Integration:
 Last verified:
 
 **DOCTOR: PASS**
+
+Latest verification on 2026-09-25:
+
+- Full suite: **98/98 — OK**
+- Doctor: **DOCTOR: PASS**
 
 Checks that passed:
 
@@ -679,7 +684,7 @@ Latest related commits:
 - `ec5946a52ebf8232de41ddab2fcd876f486f7a0f` — HANDOFF checkpoint
 - `bbdc72cc75fd6af82ce7463be4456e24bfda1352` — HANDOFF verification-status correction
 
-Current GitHub HEAD is later than the above intermediate commits; local `git pull --ff-only` was already confirmed up to date before the latest test run.
+Current GitHub HEAD at the start of this handoff update is `964c36d9daed6bcd8355634a908f3aed96591651`; local `git pull --ff-only` and the full suite were then confirmed successful.
 
 ### Latest Doctor verification after discovery robustness fix
 
@@ -803,11 +808,11 @@ The next step is to rerun the full suite, then Doctor.
 
 ## 20. Current project point — START HERE
 
-Backend/protocol/security are already in a verified state:
+Backend/protocol/security are in a verified state, and the current local code checkpoint has passed the full validation suite:
 
-**95/95 tests + DOCTOR: PASS**
+**98/98 tests + DOCTOR: PASS**
 
-The most important already-proven path is:
+The most important already-proven backend path is:
 
 **AGX1:C → /v1/command → AGX1:A → Executor → AGX1:R → Ed25519 signature**
 
@@ -815,38 +820,30 @@ The first real Brave/Chromium DOM E2E has also proven:
 
 **rendered C → Bridge → Gateway → execution → signed R → Bridge → composer**
 
-### The one immediate unfinished item
-
-**Fix Browser Bridge so that after inserting AGX1:R into the chat composer, it automatically sends the message by pressing Enter/correctly invoking the site's send action, while preventing the Bridge from reprocessing its own generated message.**
+The Browser Bridge auto-submit hardening is implemented in the current codebase, including a Bridge-generated result guard. The remaining browser-side work is real-world verification of universal chat discovery and then the complete AI-generated-command E2E.
 
 Do not redesign the backend.
-
-After that fix:
-
-- add/adjust browser-side tests or static checks as appropriate
-- run full tests
-- run Doctor
-- update HANDOFF again
-- then perform the true AI-generated-C E2E test in Brave
 
 ---
 
 ## 21. Next verification stage
 
-Before changing backend code, perform the browser-side verification:
+The next stage is browser-only verification:
 
-1. `git pull` locally so the new commits are present.
-2. Run the full test suite.
-3. Run Doctor.
-4. Reload the unpacked extension in Brave and reload the ChatGPT tab.
-5. Click the extension icon and verify the new discovery card is visible.
-6. Click the circle so it shows `Слушает`.
-7. Click `Копировать` and paste the generated phrase into the ChatGPT composer.
-8. Press the chat site's real Send button.
-9. Verify the state reaches `Готово` and that composer/send/message selectors were learned.
-10. Then send a real AI-generated `AGX1:C` and verify the full chain including automatic RESULT submission.
+1. `git pull --ff-only` locally so the current code/HANDOFF are present.
+2. Reload the unpacked extension in Brave and reload the ChatGPT tab.
+3. Open the extension popup and verify the discovery card is visible.
+4. Click the discovery circle so it shows `Слушает`.
+5. Use the generated phrase in the real chat composer.
+6. Press the site's real Send control.
+7. Verify the diagnostic state progresses through `Поле найдено` → `Кнопка найдена` → `Готово`.
+8. Verify the learned composer/send/answer targets are stored in `agentChataiChatDiscovery`.
+9. Then ask a test AI chat to write a valid `AGX1:C` into the rendered chat; do not manually paste the command.
+10. Verify Bridge executes it, inserts signed `AGX1:R`, automatically submits the result, and does not create an execution loop or duplicate execution.
 
-For the final AI-generated-command test, the user should ask a test AI chat to write the `AGX1:C`; do not manually paste the command yourself.
+No backend redesign is needed unless a concrete browser E2E failure proves a server-side defect.
+
+---
 
 ## 22. Instructions for the next AI
 
@@ -866,3 +863,27 @@ For the final AI-generated-command test, the user should ask a test AI chat to w
 14. Keep command output compact; copy the same result that is shown in the console.
 
 **Continuity rule: this HANDOFF is the first document to read after context loss.**
+
+
+### Verification checkpoint — 2026-09-25
+
+After correcting the stale action-driven discovery static test:
+
+- full Python suite: **98/98 — OK**
+- `Ran 98 tests in 7.672s`
+- **DOCTOR: PASS**
+- Python 3.12.10
+- cryptography 50.0.1
+- Gateway port `127.0.0.1:8765` listening
+- Health OK
+- Browser Auth paired/enabled
+- Result signing key present
+- Browser auth key present
+- Replay database present
+- Audit JSONL valid (39 recent lines checked)
+- Autostart Ready, last result 0
+- Extension files present
+- JavaScript syntax PASS
+- Python compilation PASS
+
+The next action is browser verification of universal discovery in Brave, followed by the true AI-generated `AGX1:C` E2E.
