@@ -845,6 +845,27 @@ Local verification after syncing commits `788b3962edc6b3ca5f1f704547f835bb0fa964
 
 The next step is real Brave discovery verification. The runtime correction specifically targets capture of the actual trusted send control when it is inside the composer's DOM wrapper.
 
+### Discovery trace finding and window-level instrumentation — 2026-09-25
+
+The first diagnostic run on Claude established:
+- discovery start works
+- the real Claude composer was observed
+- the phrase was pasted with a trusted `paste` event
+- the composer was captured
+- the phase changed from `wait_input` to `wait_send`
+- **no pointerdown, pointerup, or click event was observed after entering `wait_send`**
+
+Therefore the current failure is not yet evidence of a wrong send-button selector. The next diagnostic step is to determine whether Claude stops or reroutes pointer/click events before they reach the content-script document listener.
+
+Additional tracing was added at `window` capture level for:
+`pointerdown`, `pointerup`, `click`, `mousedown`, `mouseup`, `touchstart`, `touchend`, and `keydown`.
+
+The design invariant remains unchanged: discovery learns the send control from an actual trusted user action, not from button state.
+
+Commits:
+- `e1e703dd0cdeb8b388ffd7c63221f11e1ffb77dc` — window-level event tracing
+- `0167df15dfcb4d84912955af2589d0eb1ca4c2ab` — tracing test
+
 ### Discovery diagnostic trace — 2026-09-25
 
 Because real Brave discovery repeatedly remained at `Поле найдено`, diagnostic tracing was added before making further behavioral guesses.
