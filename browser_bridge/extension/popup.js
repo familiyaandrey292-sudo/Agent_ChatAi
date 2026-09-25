@@ -12,9 +12,241 @@ const status =
 const bridgeToggle =
     document.getElementById("bridgeToggle");
 
+const discoveryToggle =
+    document.getElementById("discoveryToggle");
+
+const discoveryPhrase =
+    document.getElementById("discoveryPhrase");
+
+const copyDiscovery =
+    document.getElementById("copyDiscovery");
+
+const discoveryState =
+    document.getElementById("discoveryState");
+
+const discoveryHelp =
+    document.getElementById("discoveryHelp");
+
+let currentDiscoveryPhrase = "";
+
 if (bridgeToggle) {
     bridgeToggle.title =
         "Alt+Shift+A — включить или выключить Bridge";
+}
+
+function randomSevenDigitNumber() {
+    return (
+        Math.floor(
+            1000000 +
+            Math.random() * 9000000
+        )
+    );
+}
+
+function makeDiscoveryPhrase() {
+    let x = randomSevenDigitNumber();
+    let y = randomSevenDigitNumber();
+
+    while (x === y) {
+        y = randomSevenDigitNumber();
+    }
+
+    return (
+        "ИИ сколько будет " +
+        x +
+        " умножить на " +
+        y
+    );
+}
+
+function setDiscoveryPhrase(phrase) {
+    currentDiscoveryPhrase = phrase || "";
+
+    if (discoveryPhrase) {
+        discoveryPhrase.value =
+            currentDiscoveryPhrase;
+    }
+}
+
+function setDiscoveryVisual(
+    listening,
+    phase = "idle"
+) {
+    if (discoveryToggle) {
+        discoveryToggle.disabled = false;
+        discoveryToggle.dataset.listening =
+            listening ? "true" : "false";
+        discoveryToggle.setAttribute(
+            "aria-pressed",
+            listening ? "true" : "false"
+        );
+        discoveryToggle.setAttribute(
+            "aria-label",
+            listening
+                ? "Остановить поиск элементов чата"
+                : "Начать поиск элементов чата"
+        );
+    }
+
+    if (discoveryState) {
+        if (listening) {
+            discoveryState.textContent =
+                "Слушает";
+        } else if (phase === "complete") {
+            discoveryState.textContent =
+                "Готово";
+        } else {
+            discoveryState.textContent =
+                "Покой";
+        }
+    }
+
+    if (discoveryHelp) {
+        if (listening) {
+            discoveryHelp.textContent =
+                "Вставь фразу в поле чата и нажми именно кнопку отправки.";
+        } else if (phase === "complete") {
+            discoveryHelp.textContent =
+                "Поле, кнопка отправки и сообщение найдены.";
+        } else {
+            discoveryHelp.textContent =
+                "Bridge запоминает найденные элементы для этого сайта.";
+        }
+    }
+}
+
+async function copyDiscoveryPhrase() {
+    if (!currentDiscoveryPhrase) {
+        return;
+    }
+
+    try {
+        if (
+            navigator.clipboard &&
+            typeof navigator.clipboard.writeText ===
+                "function"
+        ) {
+            await navigator.clipboard.writeText(
+                currentDiscoveryPhrase
+            );
+        } else {
+            const helper =
+                document.createElement("textarea");
+
+            helper.value =
+                currentDiscoveryPhrase;
+
+            document.body.appendChild(helper);
+            helper.select();
+            document.execCommand("copy");
+            helper.remove();
+        }
+
+        if (discoveryHelp) {
+            discoveryHelp.textContent =
+                "Фраза скопирована. Вставь её в поле чата.";
+        }
+    } catch (error) {
+        if (discoveryHelp) {
+            discoveryHelp.textContent =
+                "Не удалось скопировать: " +
+                error.message;
+        }
+    }
+}
+
+async function getDiscoveryState() {
+    try {
+        const tab = await getActiveTab();
+
+        if (!tab?.id) {
+            setDiscoveryVisual(false);
+            return;
+        }
+
+        const response =
+            await chrome.tabs.sendMessage(
+                tab.id,
+                {
+                    type:
+                        "AGX_CHAT_DISCOVERY_STATE"
+                }
+            );
+
+        if (response?.phrase) {
+            setDiscoveryPhrase(
+                response.phrase
+            );
+        } else if (!currentDiscoveryPhrase) {
+            setDiscoveryPhrase(
+                makeDiscoveryPhrase()
+            );
+        }
+
+        setDiscoveryVisual(
+            response?.active === true,
+            response?.phase || "idle"
+        );
+    } catch (_) {
+        setDiscoveryVisual(false);
+    }
+}
+
+async function setDiscoveryListening(
+    listening
+) {
+    const tab = await getActiveTab();
+
+    if (!tab?.id) {
+        setDiscoveryVisual(false);
+        return;
+    }
+
+    try {
+        if (listening) {
+            if (!currentDiscoveryPhrase) {
+                setDiscoveryPhrase(
+                    makeDiscoveryPhrase()
+                );
+            }
+
+            const response =
+                await chrome.tabs.sendMessage(
+                    tab.id,
+                    {
+                        type:
+                            "AGX_CHAT_DISCOVERY_START",
+                        phrase:
+                            currentDiscoveryPhrase
+                    }
+                );
+
+            setDiscoveryVisual(
+                response?.active === true,
+                response?.phase || "idle"
+            );
+        } else {
+            const response =
+                await chrome.tabs.sendMessage(
+                    tab.id,
+                    {
+                        type:
+                            "AGX_CHAT_DISCOVERY_STOP"
+                    }
+                );
+
+            setDiscoveryVisual(
+                false,
+                response?.phase || "idle"
+            );
+        }
+    } catch (error) {
+        setDiscoveryVisual(false);
+        if (discoveryHelp) {
+            discoveryHelp.textContent =
+                "Bridge unavailable on this tab.";
+        }
+    }
 }
 
 async function getActiveTab() {
@@ -163,6 +395,36 @@ async function refreshStatus() {
     }
 }
 
+setDiscoveryPhrase(
+    makeDiscoveryPhrase()
+);
+
+copyDiscovery?.addEventListener(
+    "click",
+    () => {
+        copyDiscoveryPhrase();
+    }
+);
+
+discoveryToggle?.addEventListener(
+    "click",
+    async () => {
+        const listening =
+            discoveryToggle.dataset.listening ===
+            "true";
+
+        discoveryToggle.disabled = true;
+
+        try {
+            await setDiscoveryListening(
+                !listening
+            );
+        } finally {
+            discoveryToggle.disabled = false;
+        }
+    }
+);
+
 pairButton.addEventListener(
     "click",
     async () => {
@@ -217,5 +479,6 @@ pairButton.addEventListener(
 );
 
 refreshStatus().catch(() => {});
+getDiscoveryState();
 
 
