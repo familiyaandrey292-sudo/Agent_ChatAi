@@ -89,12 +89,16 @@ function setDiscoveryVisual(
     }
 
     if (discoveryState) {
-        if (listening) {
-            discoveryState.textContent =
-                "Слушает";
-        } else if (phase === "complete") {
+        if (phase === "complete") {
             discoveryState.textContent =
                 "Готово";
+        } else if (listening) {
+            discoveryState.textContent =
+                phase === "wait_send"
+                    ? "Поле найдено"
+                    : phase === "wait_message"
+                        ? "Кнопка найдена"
+                        : "Слушает";
         } else {
             discoveryState.textContent =
                 "Покой";
@@ -102,9 +106,15 @@ function setDiscoveryVisual(
     }
 
     if (discoveryHelp) {
-        if (listening) {
+        if (phase === "wait_send") {
             discoveryHelp.textContent =
-                "Вставь фразу в поле чата и нажми именно кнопку отправки.";
+                "Поле чата найдено. Теперь нажми кнопку отправки.";
+        } else if (phase === "wait_message") {
+            discoveryHelp.textContent =
+                "Кнопка найдена. Жду появление отправленного сообщения.";
+        } else if (listening) {
+            discoveryHelp.textContent =
+                "Вставь фразу в поле чата.";
         } else if (phase === "complete") {
             discoveryHelp.textContent =
                 "Поле, кнопка отправки и сообщение найдены.";
