@@ -1,136 +1,296 @@
-﻿# HANDOFF.md — Agent ChatAI Gateway + Edge Browser Bridge
+# HANDOFF.md — Agent ChatAI Gateway + Edge Browser Bridge
 
-## Project
-Root: `C:\Proj\Agents\Agent_ChatAI`
+## Current verified state
 
-Цель: универсальный мост AI через браузерный DOM к локальному ПК. Команды извлекаются из отображённого DOM, а не только через прямой API AI.
+Project: Agent ChatAI Gateway + Edge Browser Bridge
+Local root: C:\Proj\Agents\Agent_ChatAi
+GitHub: familiyaandrey292-sudo/Agent_ChatAi
+Last previously confirmed commit: 325c782
 
-## Архитектура
+Goal: universal bridge from AI chat rendered browser DOM to the local PC. The rendered DOM is authoritative; direct AI APIs are not the primary command transport. The protocol uses neutral AGX1 containers so the AI is not modeled as having direct PC control.
 
-`AI chat DOM → AGX1:C → Browser Bridge → /v1/command → Gateway → AGX1:A → Executor → PC Agent → AGX1:R → Browser Bridge → chat`
+## Architecture
 
-### AGX1:C — COMMAND
-Команда от AI/DOM:
-- `version`
-- `kind=command`
-- `command_id`
-- `session_id`
-- `issued_at`
-- `sequence`
-- `action`
-- `args`
+AI chat DOM → AGX1:C → Browser Bridge → /v1/command → Gateway → AGX1:A → Executor → PC Agent → AGX1:R → Browser Bridge → chat
 
-Целостность: SHA-256 checksum.
+AGX1:C is a neutral upper-level command. Current /v1/command decodes C and creates a fresh internal ACTION with create_action(..., session_id=new_session_id()). Do not redesign this correlation model without a specific requirement.
 
-### AGX1:A — ACTION
-Внутренний слой между Gateway и Executor. Оставлен для возможного будущего разделения процессов/серверов.
+## AGX1:C
 
-### AGX1:R — RESULT
-Результат выполнения. Подписывается HMAC.
+File: protocol/command.py
 
-## Безопасность
+Format:
+AGX1:C:<base64url(canonical-json)>:<sha256>
 
-- Повторное выполнение: `command_id` + persistent replay protection.
-- Свежесть: `issued_at`, но это не общий execution timeout.
-- Авторизация: `ALLOW / CONFIRM / DENY`.
-- RESULT защищён HMAC.
-- ChatGPT-specific DOM roles не используются как граница безопасности.
-- `nonce` пока не имеет отдельной обязательной роли.
+Current Command fields:
+- action
+- args
 
-## Gateway
+Validation includes:
+- action regex [a-zA-Z0-9_.:-]+
+- action max 128 chars
+- args must be a JSON object
+- SHA-256 tamper detection
+- invalid container/kind/action/missing action rejection
 
-Адрес: `http://127.0.0.1:8765`
+Eight dedicated COMMAND unit tests pass.
 
-Health: `/v1/health`
+## AGX1:A
 
-Состояние:
-- Browser Auth: paired/enabled
-- Ed25519 browser authentication: работает
-- Replay protection: SQLite, retention 900 секунд
-- Audit logging: работает
-- RESULT signing: работает
+File: protocol/MSGv1.py
 
-Audit события не содержат `args` и `result`.
+Format:
+AGX1:A:<base64url(canonical-json)>:<sha256>
+
+ACTION is the internal Gateway → Executor layer.
+
+Metadata includes:
+version, kind, message_id, command_id, session_id, timestamp, nonce, sequence, action, args.
+
+Protection:
+- canonical JSON
+- base64url
+- SHA-256 integrity
+- max age 300 seconds
+- max future skew 30 seconds
+
+## AGX1:R
+
+Format:
+AGX1:R:<base64url(canonical-json)>:<hmac-sha256>
+
+RESULT has HMAC-SHA256 authentication/integrity.
+
+Additionally gateway/signing.py provides persistent Ed25519 RESULT signing. The Browser Bridge verifies the returned Ed25519 signature.
+
+## Gateway / Executor / Agent
+
+Main files:
+- gateway/gateway.py
+- gateway/executor.py
+- gateway/server.py
+- pc_agent/agent.py
+
+Policy:
+- ALLOW
+- CONFIRM
+- DENY
+
+Replay protection:
+- persistent SQLite
+- reservation key is session_id + message_id
+- survives Gateway restart
+
+PC Agent currently supports:
+- system.info
+- files.list
+- app.open
+
+External executable checks use shutil.which(). Missing components must produce an explicit install/PATH message rather than an unexplained failure.
+
+## Browser Auth
+
+Files:
+- gateway/browser_auth.py
+- browser_bridge/extension/browser_keys.js
+- browser_bridge/extension/background.js
+
+Browser authentication:
+- Ed25519 challenge-response
+- private key stored in browser IndexedDB
+- private key non-extractable
+- one-time challenges
+- invalid signatures do not consume the challenge
+- tampered request body rejected
+- multiple browser keys supported
+
+Gateway: http://127.0.0.1:8765
+Challenge endpoint: /v1/auth/challenge
+
+## HTTP API
+
+GET:
+- /v1/health
+- /v1/auth/challenge
+
+POST:
+- /v1/pair
+- /v1/action
+- /v1/command
+- /v1/confirm
+- /v1/cancel
+
+/v1/command flow:
+1. receive JSON container
+2. decode AGX1:C
+3. create internal AGX1:A
+4. pass ACTION to Executor
+5. return AGX1:R
+6. create confirmation token when required
+7. return Ed25519 signature separately
+
+Confirmed:
+- valid C → HTTP 200 → authenticated/signed R → system.info executed
+- tampered C → HTTP 409 → command rejected
+
+## Audit
+
+Files:
+- gateway/audit.py
+- gateway/audit.jsonl
+
+Audit is integrated end-to-end and excludes action args and result payloads. JSONL validity, rotation, concurrent writes, sensitive-argument exclusion, and HTTP/executor lifecycle are tested.
+
+Typical events:
+- action_received
+- action_result
 
 ## Browser Bridge
 
-Текущий браузер: Brave.
+Main files:
+- browser_bridge/extension/content.js
+- browser_bridge/extension/background.js
+- browser_bridge/extension/browser_keys.js
+- browser_bridge/extension/popup.html
+- browser_bridge/extension/popup.js
 
-- `AGX1:C` извлекается из `document.body.innerText`
-- MutationObserver отслеживает изменения DOM
-- Дубли команд подавляются
-- RESULT автоматически вставляется в чат и отправляется
-- Панель поддерживает resize, drag, сохранение позиции/размера
-- Есть day/night theme
-- Есть history последних команд
+Current behavior:
+- reads rendered DOM / document.body.innerText
+- MutationObserver tracks DOM changes
+- recognizes AGX1:A and AGX1:C
+- suppresses duplicates
+- publishes RESULT back into chat composer
+- command panel supports resize/drag/history
+- day/night theme
+- confirmation UI
 
-## Управление Bridge
+Bridge control requirements:
+1. panel hidden after tab load
+2. state separate per tab
+3. parser only active while Bridge is enabled
+4. close button X exists
+5. Alt+Shift+A toggles Bridge
+6. popup has ON/OFF
+7. Alt+Shift+A in popup is represented by tooltip
 
-Требуемое поведение:
+Static checks previously verified:
+- NODE_CHECK=OK
+- BRIDGE_FUNCTIONS=True
+- PARSER_GUARD=True
+- CLOSE_BUTTON=True
 
-1. Панель не появляется автоматически после загрузки вкладки.
-2. Состояние Bridge отдельно для каждой вкладки.
-3. Парсер работает только когда Bridge включён.
-4. На панели есть `×`.
-5. `Alt+Shift+A` переключает Bridge.
-6. В popup есть ON/OFF переключатель.
-7. Надпись `Alt+Shift+A` в popup заменена tooltip.
+A previous PowerShell patch accidentally inserted a literal line-ending escape sequence into JavaScript and broke content.js; this was fixed. Missing openCommandPanel(), closeCommandPanel(), and toggleCommandPanel() were also added.
 
-Последняя проверка `content.js`:
+## Current test status
 
-- `NODE_CHECK=OK`
-- `BRIDGE_FUNCTIONS=True`
-- `PARSER_GUARD=True`
-- `CLOSE_BUTTON=True`
+Full suite:
+**83 tests — OK**
 
-## Важная история исправлений
+Last full run:
+Ran 83 tests in 7.732s
+OK
 
-В одном из патчей в JavaScript случайно попала литеральная строка `` `r`n `` из PowerShell. Это ломало выполнение `content.js`. Ошибка исправлена.
+Recent additions:
+tests/test_command.py — 8 tests covering roundtrip, Unicode/nested args, tamper detection, invalid container, wrong kind, invalid action, missing action, and args type.
 
-Также отсутствовали:
-- `openCommandPanel()`
-- `closeCommandPanel()`
-- `toggleCommandPanel()`
+tests/test_server.py:
+- test_command_endpoint
+- test_command_endpoint_rejects_tampered_container
 
-Они добавлены.
+Integration results:
+- valid /v1/command → HTTP 200
+- tampered /v1/command → HTTP 409
 
-## Следующая точка проверки
+## Current Doctor status
 
-После перезагрузки расширения и вкладки проверить:
+**DOCTOR: PASS**
 
-- после reload панель скрыта;
-- `Alt+Shift+A` открывает панель;
-- `×` закрывает панель;
-- popup ON открывает Bridge;
-- popup OFF закрывает Bridge;
-- при OFF `AGX1:C` не обрабатывается.
+Verified:
+- Python 3.12.10
+- cryptography 50.0.1
+- Gateway PID 1732
+- 127.0.0.1:8765 listening
+- Health OK
+- Browser Auth paired and enabled
+- Auth challenge available, length 43
+- Result signing key present
+- Browser auth key present
+- Replay database present
+- Audit log valid JSONL, 35 recent lines checked
+- Autostart Ready, last result 0
+- Browser extension files present
+- JavaScript syntax checks passed
+- Python compilation passed
+- 83 tests OK
 
-## Основные файлы
+Browser test page:
+http://127.0.0.1:8766/index.html
 
-- `protocol\MSGv1.py`
-- `protocol\command.py`
-- `gateway\gateway.py`
-- `gateway\executor.py`
-- `gateway\server.py`
-- `gateway\pairing.py`
-- `gateway\browser_auth.py`
-- `pc_agent\agent.py`
-- `browser_bridge\extension\content.js`
-- `browser_bridge\extension\background.js`
-- `browser_bridge\extension\browser_keys.js`
-- `browser_bridge\extension\popup.html`
-- `browser_bridge\extension\popup.js`
+## Security invariants
 
-## Инварианты корреляции
+Do not break without a deliberate design decision:
+- rendered DOM is the command source
+- direct AI API is not the primary command transport
+- AGX1:C remains a neutral command container
+- ACTION integrity uses SHA-256
+- RESULT protocol authentication uses HMAC
+- Browser-facing RESULT signing uses Ed25519
+- replay protection is persistent
+- CONFIRM never executes before confirmation
+- DENY never executes
+- audit excludes args/result payloads
+- browser private signing key is never exported
+- Browser Auth challenges are one-time
+- tampered body/container is rejected
+- external dependencies are checked before use
 
-`C.command_id == A.command_id == R.command_id`
+## Current project point
 
-`C.session_id == A.session_id == R.session_id`
+Backend, security, protocol, and HTTP C/A/R chain are in a verified working state:
 
-`C.issued_at == A.issued_at == R.issued_at`
+**83/83 tests + DOCTOR: PASS**
 
-`C.sequence == A.sequence == R.sequence`
+Verified chain:
+**AGX1:C → /v1/command → AGX1:A → Executor → AGX1:R → signature**
 
-## Текущая стратегия
+Next task is the real Edge/Chromium end-to-end test, not a backend redesign:
+1. AI emits AGX1:C into rendered chat DOM
+2. Browser Bridge detects it
+3. Browser Auth signs the HTTP request
+4. Gateway accepts C
+5. Gateway creates A
+6. Executor performs the action
+7. Gateway returns R + Ed25519 signature
+8. Browser Bridge verifies the signature
+9. R is inserted back into the AI chat DOM
+10. Test ALLOW, CONFIRM, DENY, and replay
 
-Не переделывать протокол целиком. Сначала довести существующую цепочку `C → A → R` до рабочей версии.
+## Work completed in the latest session
+
+1. Reviewed the existing C/A/R architecture.
+2. Added 8 COMMAND unit tests.
+3. Added /v1/command integration test.
+4. Verified valid C → /v1/command → R with HTTP 200.
+5. Added tampered-C integration test.
+6. Verified tampered C → HTTP 409.
+7. Full suite reached 83/83 OK.
+8. Doctor returned DOCTOR: PASS.
+9. HANDOFF is being updated as the continuity checkpoint.
+
+## Git working-tree note
+
+The previously confirmed clean state was before the latest test additions. The latest tests and this HANDOFF update must be checked with git status before the next commit. Do not assume the working tree is clean from the old status.
+
+## Instructions for the next AI
+
+- Read this HANDOFF first.
+- Do not repeat already-proven tests without a reason.
+- Understand existing architecture before changing code.
+- Do not redesign the whole protocol for a local issue.
+- Add/update tests after meaningful code changes.
+- Run the full suite and Doctor after runtime-affecting changes.
+- **Always update HANDOFF.md after a meaningful project stage.**
+- Prefer one self-contained PowerShell command at a time.
+- When possible, copy PowerShell output to Windows Clipboard.
+- If an external component is missing, explicitly offer installation.
+- If context is lost, use this HANDOFF as the continuity source and continue from Current project point.
