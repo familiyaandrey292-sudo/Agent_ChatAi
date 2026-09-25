@@ -1054,3 +1054,17 @@ After correcting the stale action-driven discovery static test:
 - Python compilation PASS
 
 The next action is browser verification of universal discovery in Brave, followed by the true AI-generated `AGX1:C` E2E.
+
+
+### Latest validation attempt — 2026-09-25
+
+The full local suite reached **103 tests** and had exactly one failure:
+- `test_discovery_traces_submit_actions` in `tests/test_browser_discovery.py`
+- The failure was a brittle static marker expecting a quoted object key `"submitter"`, while `content.js` correctly uses the JavaScript shorthand `submitter:`.
+
+Runtime discovery code was not changed. The test was corrected to assert `submitter:`.
+
+Fix commit:
+- `1820ea3e9a27b346c9c07e62b95fd735115141f4`
+
+Next step: local `git pull --ff-only`, then rerun the full test suite + Doctor. Do not proceed to new browser changes until this validation is green.
