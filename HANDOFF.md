@@ -1081,3 +1081,26 @@ Fix commit:
 - `738cb0a72d16aa5b12291583858f13b3a7d249e9`
 
 Next step: sync locally and rerun the full suite + Doctor.
+
+### Validation checkpoint — 2026-09-25
+
+Local validation after the latest static-test corrections is fully green:
+- **103/103 tests — OK**
+- **DOCTOR: PASS**
+- Python 3.12.10
+- cryptography 50.0.1
+- Gateway listening on 127.0.0.1:8765
+- Health OK
+- Browser auth paired/enabled
+- Result signing key present
+- Browser auth key present
+- Replay database present
+- Audit JSONL valid (39 recent lines checked)
+- Autostart Ready, last result 0
+- Browser extension files present
+- JavaScript syntax PASS
+- Python compilation PASS
+
+No runtime changes were required for the last two failures; both were brittle static-test markers.
+
+Next stage: real Brave browser verification of universal discovery, then the true AI-generated `AGX1:C` end-to-end test.
