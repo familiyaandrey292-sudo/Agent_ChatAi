@@ -265,6 +265,42 @@ class TestBrowserDiscoveryStatic(unittest.TestCase):
             scan
         )
 
+    def test_discovery_requires_submission_evidence_before_accepting_send_control(self):
+        for marker in (
+            "pendingSendButton",
+            "preSendPhraseElements",
+            "beginDiscoverySendCandidate",
+            "pollDiscoverySendCandidate",
+            "send_candidate_pending",
+            "send_control_confirmed",
+            "send_candidate_rejected",
+            "composer_changed_after_user_action",
+            "new_message_rendered",
+        ):
+            self.assertIn(
+                marker,
+                self.content_js
+            )
+
+        start = self.content_js.index(
+            "function handleChatDiscoveryClick"
+        )
+        end = self.content_js.index(
+            "function extractActionContainers",
+            start
+        )
+        handler = self.content_js[start:end]
+
+        self.assertIn(
+            "beginDiscoverySendCandidate",
+            handler
+        )
+        self.assertNotIn(
+            'setChatDiscoveryPhase(\n        "wait_message"\n    );',
+            handler
+        )
+
+
     def test_discovery_traces_submit_actions(self):
         for marker in (
             "handleChatDiscoverySubmit",
