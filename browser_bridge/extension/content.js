@@ -92,7 +92,10 @@ const chatDiscovery = {
     preSendPageText: "",
     composer: null,
     sendButton: null,
+    pendingSendButton: null,
+    pendingSendStartedAt: null,
     messageElement: null,
+    preSendPhraseElements: [],
     preSendResultElements: [],
     trace: [],
     traceStartedAt: null,
@@ -465,12 +468,12 @@ function getTrustedUserActionTarget(
         : null;
 }
 
-function findDiscoveryRenderedText(text) {
+function findDiscoveryRenderedTextElements(text) {
     const wanted =
         normalizeChatDiscoveryText(text);
 
     if (!wanted) {
-        return null;
+        return [];
     }
 
     const candidates = [];
@@ -550,7 +553,15 @@ function findDiscoveryRenderedText(text) {
         }
     );
 
-    return candidates[0] || null;
+    return candidates;
+}
+
+function findDiscoveryRenderedText(text) {
+    return (
+        findDiscoveryRenderedTextElements(
+            text
+        )[0] || null
+    );
 }
 
 function discoverChatMessageContainer(element) {
@@ -934,6 +945,9 @@ function startChatDiscovery(
     chatDiscovery.trace = [];
     chatDiscovery.traceStartedAt = null;
     chatDiscovery.scanCount = 0;
+    chatDiscovery.pendingSendButton = null;
+    chatDiscovery.pendingSendStartedAt = null;
+    chatDiscovery.preSendPhraseElements = [];
     chatDiscovery.preSendResultElements = [];
 
     discoveryTrace(
@@ -990,7 +1004,11 @@ function stopChatDiscovery() {
     }
     chatDiscovery.composer = null;
     chatDiscovery.sendButton = null;
+    chatDiscovery.pendingSendButton = null;
+    chatDiscovery.pendingSendStartedAt = null;
     chatDiscovery.messageElement = null;
+    chatDiscovery.preSendPhraseElements = [];
+    chatDiscovery.preSendResultElements = [];
     chatDiscovery.phrase = "";
     chatDiscovery.expectedResult = "";
     chatDiscovery.preSendPageText = "";
@@ -1228,6 +1246,227 @@ function scanForDiscoveryInput() {
     return false;
 }
 
+function captureDiscoverySendSnapshot() {
+    chatDiscovery.preSendPageText =
+        normalizeChatDiscoveryText(
+            document.body?.innerText || ""
+        );
+
+    chatDiscovery.preSendPhraseElements =
+        findDiscoveryRenderedTextElements(
+            chatDiscovery.phrase
+        );
+
+    capturePreSendResultElements();
+
+    discoveryTrace(
+        "pre_send_snapshot",
+        {
+            pageTextLength:
+                chatDiscovery.preSendPageText.length,
+            preSendPhraseElementCount:
+                chatDiscovery.preSendPhraseElements.length,
+            expectedAlreadyPresent:
+                normalizeDiscoveryNumber(
+                    chatDiscovery.preSendPageText
+                ).indexOf(
+                    normalizeDiscoveryNumber(
+                        chatDiscovery.expectedResult
+                    )
+                ) >= 0
+        }
+    );
+}
+
+function finalizeDiscoverySendCandidate(
+    sendButton,
+    evidence
+) {
+    if (
+        !chatDiscovery.active ||
+        chatDiscovery.phase !== "wait_send" ||
+        !sendButton
+    ) {
+        return false;
+    }
+
+    chatDiscovery.sendButton =
+        sendButton;
+
+    chatDiscovery.pendingSendButton = null;
+    chatDiscovery.pendingSendStartedAt = null;
+
+    discoveryTrace(
+        "send_control_confirmed",
+        {
+            evidence,
+            sendButton:
+                describeDiscoveryElement(
+                    sendButton
+                )
+        }
+    );
+
+    chatDiscoveryProfile = {
+        ...chatDiscoveryProfile,
+        composerSelector:
+            getElementSelector(
+                chatDiscovery.composer
+            ),
+        sendButtonSelector:
+            getElementSelector(
+                sendButton
+            )
+    };
+
+    saveChatDiscoveryProfile();
+
+    setChatDiscoveryPhase(
+        "wait_message"
+    );
+
+    window.setTimeout(
+        runChatDiscoveryScan,
+        50
+    );
+
+    return true;
+}
+
+function beginDiscoverySendCandidate(
+    actionTarget,
+    eventType
+) {
+    if (
+        !actionTarget ||
+        !chatDiscovery.composer
+    ) {
+        return false;
+    }
+
+    if (
+        chatDiscovery.pendingSendButton ===
+        actionTarget
+    ) {
+        discoveryTrace(
+            "send_candidate_repeat",
+            {
+                eventType,
+                sendButton:
+                    describeDiscoveryElement(
+                        actionTarget
+                    )
+            }
+        );
+        return false;
+    }
+
+    chatDiscovery.pendingSendButton =
+        actionTarget;
+
+    chatDiscovery.pendingSendStartedAt =
+        Date.now();
+
+    captureDiscoverySendSnapshot();
+
+    discoveryTrace(
+        "send_candidate_pending",
+        {
+            eventType,
+            sendButton:
+                describeDiscoveryElement(
+                    actionTarget
+                )
+        }
+    );
+
+    return true;
+}
+
+function pollDiscoverySendCandidate() {
+    if (
+        !chatDiscovery.active ||
+        chatDiscovery.phase !== "wait_send" ||
+        !chatDiscovery.pendingSendButton
+    ) {
+        return false;
+    }
+
+    const composerText =
+        normalizeChatDiscoveryText(
+            getEditableText(
+                chatDiscovery.composer
+            )
+        );
+
+    if (
+        composerText !==
+        normalizeChatDiscoveryText(
+            chatDiscovery.phrase
+        )
+    ) {
+        return finalizeDiscoverySendCandidate(
+            chatDiscovery.pendingSendButton,
+            "composer_changed_after_user_action"
+        );
+    }
+
+    const freshPhraseElement =
+        findDiscoveryRenderedTextElements(
+            chatDiscovery.phrase
+        ).find(
+            (candidate) =>
+                !chatDiscovery.preSendPhraseElements.includes(
+                    candidate
+                )
+        ) || null;
+
+    if (freshPhraseElement) {
+        discoveryTrace(
+            "discovery_message_rendered",
+            {
+                element:
+                    describeDiscoveryElement(
+                        freshPhraseElement
+                    )
+            }
+        );
+
+        return finalizeDiscoverySendCandidate(
+            chatDiscovery.pendingSendButton,
+            "new_message_rendered"
+        );
+    }
+
+    if (
+        chatDiscovery.pendingSendStartedAt !== null &&
+        Date.now() -
+            chatDiscovery.pendingSendStartedAt >
+            2500
+    ) {
+        discoveryTrace(
+            "send_candidate_rejected",
+            {
+                reason:
+                    "no_submission_evidence",
+                sendButton:
+                    describeDiscoveryElement(
+                        chatDiscovery.pendingSendButton
+                    )
+            }
+        );
+
+        chatDiscovery.pendingSendButton =
+            null;
+        chatDiscovery.pendingSendStartedAt =
+            null;
+
+        return false;
+    }
+
+    return false;
+}
+
 function handleChatDiscoveryClick(
     event
 ) {
@@ -1278,65 +1517,9 @@ function handleChatDiscoveryClick(
         return;
     }
 
-    chatDiscovery.sendButton =
-        actionTarget;
-
-    discoveryTrace(
-        "send_control_captured",
-        {
-            eventType:
-                event?.type || "",
-            sendButton:
-                describeDiscoveryElement(
-                    actionTarget
-                )
-        }
-    );
-
-    chatDiscovery.preSendPageText =
-        normalizeChatDiscoveryText(
-            document.body?.innerText || ""
-        );
-
-    capturePreSendResultElements();
-
-    discoveryTrace(
-        "pre_send_snapshot",
-        {
-            pageTextLength:
-                chatDiscovery.preSendPageText.length,
-            expectedAlreadyPresent:
-                normalizeDiscoveryNumber(
-                    chatDiscovery.preSendPageText
-                ).indexOf(
-                    normalizeDiscoveryNumber(
-                        chatDiscovery.expectedResult
-                    )
-                ) >= 0
-        }
-    );
-
-    chatDiscoveryProfile = {
-        ...chatDiscoveryProfile,
-        composerSelector:
-            getElementSelector(
-                chatDiscovery.composer
-            ),
-        sendButtonSelector:
-            getElementSelector(
-                actionTarget
-            )
-    };
-
-    saveChatDiscoveryProfile();
-
-    setChatDiscoveryPhase(
-        "wait_message"
-    );
-
-    window.setTimeout(
-        runChatDiscoveryScan,
-        50
+    beginDiscoverySendCandidate(
+        actionTarget,
+        event?.type || ""
     );
 }
 
@@ -3644,62 +3827,14 @@ function handleChatDiscoverySubmit(event) {
     const actionTarget =
         event.submitter;
 
-    chatDiscovery.sendButton =
-        actionTarget;
-
-    discoveryTrace(
-        "send_control_captured",
-        {
-            eventType: "submit",
-            sendButton:
-                describeDiscoveryElement(
-                    actionTarget
-                )
-        }
+    beginDiscoverySendCandidate(
+        actionTarget,
+        "submit"
     );
 
-    chatDiscovery.preSendPageText =
-        normalizeChatDiscoveryText(
-            document.body?.innerText || ""
-        );
-
-    discoveryTrace(
-        "pre_send_snapshot",
-        {
-            pageTextLength:
-                chatDiscovery.preSendPageText.length,
-            expectedAlreadyPresent:
-                normalizeDiscoveryNumber(
-                    chatDiscovery.preSendPageText
-                ).indexOf(
-                    normalizeDiscoveryNumber(
-                        chatDiscovery.expectedResult
-                    )
-                ) >= 0
-        }
-    );
-
-    chatDiscoveryProfile = {
-        ...chatDiscoveryProfile,
-        composerSelector:
-            getElementSelector(
-                chatDiscovery.composer
-            ),
-        sendButtonSelector:
-            getElementSelector(
-                actionTarget
-            )
-    };
-
-    saveChatDiscoveryProfile();
-
-    setChatDiscoveryPhase(
-        "wait_message"
-    );
-
-    window.setTimeout(
-        runChatDiscoveryScan,
-        50
+    finalizeDiscoverySendCandidate(
+        actionTarget,
+        "trusted_submit_event"
     );
 }
 
@@ -3754,6 +3889,11 @@ function scheduleDiscoveryPoll() {
                 "wait_input"
             ) {
                 scanForDiscoveryInput();
+            } else if (
+                chatDiscovery.phase ===
+                "wait_send"
+            ) {
+                pollDiscoverySendCandidate();
             } else if (
                 chatDiscovery.phase ===
                 "wait_message"
