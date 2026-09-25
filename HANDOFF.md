@@ -806,6 +806,29 @@ No runtime behavior was changed by this commit.
 
 The next step is to rerun the full suite, then Doctor.
 
+### Verification after send-capture correction — 2026-09-25
+
+Local verification after syncing commits `788b3962edc6b3ca5f1f704547f835bb0fa9643a` and `07606b5875231224cea8387c8391e7f0ba2ddbe6`:
+
+- full Python suite: **98/98 — OK**
+- `Ran 98 tests in 7.287s`
+- **DOCTOR: PASS**
+- Python 3.12.10
+- cryptography 50.0.1
+- Gateway listening on `127.0.0.1:8765`
+- Health OK
+- Browser Auth paired/enabled
+- Result signing key present
+- Browser auth key present
+- Replay database present
+- Audit JSONL valid (39 recent lines checked)
+- Autostart Ready, last result 0
+- Extension files present
+- JavaScript syntax PASS
+- Python compilation PASS
+
+The next step is real Brave discovery verification. The runtime correction specifically targets capture of the actual trusted send control when it is inside the composer's DOM wrapper.
+
 ## 20. Current project point — START HERE
 
 Backend/protocol/security are in a verified state, and the current local code checkpoint has passed the full validation suite:
