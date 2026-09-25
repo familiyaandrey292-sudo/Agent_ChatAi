@@ -1,296 +1,601 @@
 # HANDOFF.md — Agent ChatAI Gateway + Edge Browser Bridge
 
-## Current verified state
+## 0. Purpose of this file
 
-Project: Agent ChatAI Gateway + Edge Browser Bridge
-Local root: C:\Proj\Agents\Agent_ChatAi
-GitHub: familiyaandrey292-sudo/Agent_ChatAi
-Last previously confirmed commit: 325c782
+This file is the continuity checkpoint for the project.
 
-Goal: universal bridge from AI chat rendered browser DOM to the local PC. The rendered DOM is authoritative; direct AI APIs are not the primary command transport. The protocol uses neutral AGX1 containers so the AI is not modeled as having direct PC control.
+A new AI must read this file first and continue from the **Current project point** below. Do not restart the project from scratch and do not redesign proven parts without a concrete reason.
 
-## Architecture
+---
 
-AI chat DOM → AGX1:C → Browser Bridge → /v1/command → Gateway → AGX1:A → Executor → PC Agent → AGX1:R → Browser Bridge → chat
+## 1. Project identity
 
-AGX1:C is a neutral upper-level command. Current /v1/command decodes C and creates a fresh internal ACTION with create_action(..., session_id=new_session_id()). Do not redesign this correlation model without a specific requirement.
+Project name: **Agent ChatAI Gateway + Edge Browser Bridge**
 
-## AGX1:C
+Local root:
+`C:\Proj\Agents\Agent_ChatAi`
 
-File: protocol/command.py
+GitHub repository:
+`familiyaandrey292-sudo/Agent_ChatAi`
+
+Main branch:
+`main`
+
+Latest confirmed repository commit at this handoff:
+`91f92f070d7816b6f57466f93a95bd909249c5e5`
+
+Date of this handoff:
+**2026-09-25**
+
+Primary goal:
+
+> Universal bridge from an AI chat page, using the **rendered browser DOM as the authoritative command source**, to the local Windows PC.
+
+Direct AI APIs are **not** the primary command transport.
+
+The protocol deliberately uses neutral AGX1 containers so the AI is not modeled as having direct PC control.
+
+---
+
+## 2. Core architecture
+
+Verified architecture:
+
+**AI chat rendered DOM → AGX1:C → Browser Bridge → /v1/command → Gateway → AGX1:A → Executor → PC Agent → AGX1:R → Browser Bridge → chat**
+
+Important:
+
+- The browser DOM is authoritative.
+- Browser Bridge parses rendered chat content.
+- AGX1:C is the neutral upper-level command container.
+- `/v1/command` decodes C and creates a **fresh internal AGX1:A**.
+- Current implementation uses:
+  `create_action(..., session_id=new_session_id()))
+- Do not invent additional C/A correlation semantics that are not present in the current C schema.
+- Do not redesign this flow just to solve a local browser issue.
+
+---
+
+## 3. AGX1:C — command from rendered AI chat
+
+File:
+
+`protocol/command.py`
 
 Format:
-AGX1:C:<base64url(canonical-json)>:<sha256>
 
-Current Command fields:
-- action
-- args
+`AGX1:C:<base64url(canonical-json)>:<sha256>`
 
-Validation includes:
-- action regex [a-zA-Z0-9_.:-]+
-- action max 128 chars
+Current logical fields:
+
+- `action`
+- `args`
+
+Validation:
+
+- action must match `[a-zA-Z0-9_.:-]+`
+- action maximum length: 128
 - args must be a JSON object
-- SHA-256 tamper detection
-- invalid container/kind/action/missing action rejection
+- canonical JSON
+- SHA-256 integrity/checksum
+- invalid container rejected
+- wrong kind rejected
+- missing action rejected
+- invalid action rejected
 
-Eight dedicated COMMAND unit tests pass.
+Dedicated COMMAND test coverage:
 
-## AGX1:A
+**8 tests pass**
 
-File: protocol/MSGv1.py
+---
+
+## 4. AGX1:A — internal action layer
+
+File:
+
+`protocol/MSGv1.py`
 
 Format:
-AGX1:A:<base64url(canonical-json)>:<sha256>
+
+`AGX1:A:<base64url(canonical-json)>:<sha256>`
 
 ACTION is the internal Gateway → Executor layer.
 
 Metadata includes:
-version, kind, message_id, command_id, session_id, timestamp, nonce, sequence, action, args.
+
+- version
+- kind
+- message_id
+- command_id
+- session_id
+- timestamp
+- nonce
+- sequence
+- action
+- args
 
 Protection:
+
 - canonical JSON
 - base64url
 - SHA-256 integrity
-- max age 300 seconds
-- max future skew 30 seconds
+- maximum age: 300 seconds
+- maximum future skew: 30 seconds
 
-## AGX1:R
+Do not weaken these freshness/integrity checks.
+
+---
+
+## 5. AGX1:R — result
 
 Format:
-AGX1:R:<base64url(canonical-json)>:<hmac-sha256>
 
-RESULT has HMAC-SHA256 authentication/integrity.
+`AGX1:R:<base64url(canonical-json)>:<hmac-sha256>`
 
-Additionally gateway/signing.py provides persistent Ed25519 RESULT signing. The Browser Bridge verifies the returned Ed25519 signature.
+RESULT protection:
 
-## Gateway / Executor / Agent
+- HMAC-SHA256 authentication/integrity at the protocol layer
+- persistent Ed25519 signing at the gateway/browser-facing layer
+
+File:
+
+`gateway/signing.py`
+
+Browser Bridge verifies the returned Ed25519 signature.
+
+The browser private signing key must never be exported.
+
+---
+
+## 6. Gateway / Executor / PC Agent
 
 Main files:
-- gateway/gateway.py
-- gateway/executor.py
-- gateway/server.py
-- pc_agent/agent.py
 
-Policy:
+- `gateway/gateway.py`
+- `gateway/executor.py`
+- `gateway/server.py`
+- `pc_agent/agent.py`
+
+Gateway policy modes:
+
 - ALLOW
 - CONFIRM
 - DENY
 
 Replay protection:
+
 - persistent SQLite
-- reservation key is session_id + message_id
+- reservation key: `session_id + message_id`
 - survives Gateway restart
 
 PC Agent currently supports:
-- system.info
-- files.list
-- app.open
 
-External executable checks use shutil.which(). Missing components must produce an explicit install/PATH message rather than an unexplained failure.
+- `system.info`
+- `files.list`
+- `app.open`
 
-## Browser Auth
+External executable handling:
+
+- uses `shutil.which()`
+- missing required external components must produce an explicit install/PATH message
+- never silently fail just because a dependency/component is absent
+
+This dependency-check rule applies to every new external component added to the project.
+
+---
+
+## 7. Browser Authentication
 
 Files:
-- gateway/browser_auth.py
-- browser_bridge/extension/browser_keys.js
-- browser_bridge/extension/background.js
 
-Browser authentication:
+- `gateway/browser_auth.py`
+- `browser_bridge/extension/browser_keys.js`
+- `browser_bridge/extension/background.js`
+
+Mechanism:
+
 - Ed25519 challenge-response
-- private key stored in browser IndexedDB
-- private key non-extractable
-- one-time challenges
+- browser private key stored in IndexedDB
+- private key is non-extractable
+- challenges are one-time
 - invalid signatures do not consume the challenge
-- tampered request body rejected
-- multiple browser keys supported
+- tampered request body is rejected
+- multiple browser keys are supported
 
-Gateway: http://127.0.0.1:8765
-Challenge endpoint: /v1/auth/challenge
+Gateway:
 
-## HTTP API
+`http://127.0.0.1:8765`
+
+Challenge:
+
+`/v1/auth/challenge`
+
+---
+
+## 8. HTTP API
 
 GET:
-- /v1/health
-- /v1/auth/challenge
+
+- `/v1/health`
+- `/v1/auth/challenge`
 
 POST:
-- /v1/pair
-- /v1/action
-- /v1/command
-- /v1/confirm
-- /v1/cancel
 
-/v1/command flow:
-1. receive JSON container
+- `/v1/pair`
+- `/v1/action`
+- `/v1/command`
+- `/v1/confirm`
+- `/v1/cancel`
+
+Current `/v1/command` flow:
+
+1. receive JSON containing C
 2. decode AGX1:C
-3. create internal AGX1:A
-4. pass ACTION to Executor
-5. return AGX1:R
-6. create confirmation token when required
-7. return Ed25519 signature separately
+3. create fresh internal AGX1:A
+4. apply gateway policy/replay protections
+5. execute through Executor/PC Agent
+6. create AGX1:R
+7. return RESULT
+8. return Ed25519 signature separately
+9. return confirmation token when policy requires confirmation
 
-Confirmed:
-- valid C → HTTP 200 → authenticated/signed R → system.info executed
-- tampered C → HTTP 409 → command rejected
+Verified HTTP integration:
 
-## Audit
+- valid C → HTTP 200
+- tampered C → HTTP 409
+- valid C produced an authenticated/signed RESULT
+- `system.info` executed successfully
+
+---
+
+## 9. Audit logging
 
 Files:
-- gateway/audit.py
-- gateway/audit.jsonl
 
-Audit is integrated end-to-end and excludes action args and result payloads. JSONL validity, rotation, concurrent writes, sensitive-argument exclusion, and HTTP/executor lifecycle are tested.
+- `gateway/audit.py`
+- `gateway/audit.jsonl`
+
+Audit logging is integrated end-to-end.
 
 Typical events:
-- action_received
-- action_result
 
-## Browser Bridge
+- `action_received`
+- `action_result`
+
+Important privacy/security rule:
+
+**Audit records do not store action args or result payloads.**
+
+Already tested:
+
+- JSONL validity
+- rotation
+- concurrent writes
+- sensitive argument exclusion
+- HTTP/executor lifecycle logging
+
+Do not add raw command arguments/results to the audit log without an explicit security decision.
+
+---
+
+## 10. Browser Bridge
+
+Extension directory:
+
+`browser_bridge/extension`
 
 Main files:
-- browser_bridge/extension/content.js
-- browser_bridge/extension/background.js
-- browser_bridge/extension/browser_keys.js
-- browser_bridge/extension/popup.html
-- browser_bridge/extension/popup.js
 
-Current behavior:
-- reads rendered DOM / document.body.innerText
+- `content.js`
+- `background.js`
+- `browser_keys.js`
+- `popup.html`
+- `popup.js`
+- `manifest.json`
+
+Other relevant files include:
+
+- `agx_extractor.js`
+- `result_public_key.js`
+- backup copies of earlier `content.js`
+
+Manifest:
+
+- MV3
+- permissions: storage, tabs, scripting
+- host permissions: `<all_urls>` and `http://127.0.0.1:8765/*`
+- background service worker: `background.js`
+- popup: `popup.html`
+- content script: `content.js` at `document_idle`
+
+Bridge behavior already implemented:
+
+- reads rendered DOM / `document.body.innerText`
 - MutationObserver tracks DOM changes
 - recognizes AGX1:A and AGX1:C
-- suppresses duplicates
-- publishes RESULT back into chat composer
-- command panel supports resize/drag/history
-- day/night theme
-- confirmation UI
-
-Bridge control requirements:
-1. panel hidden after tab load
-2. state separate per tab
-3. parser only active while Bridge is enabled
-4. close button X exists
-5. Alt+Shift+A toggles Bridge
-6. popup has ON/OFF
-7. Alt+Shift+A in popup is represented by tooltip
+- duplicate commands are suppressed
+- result can be inserted into the chat composer
+- command panel supports resize
+- command panel supports drag
+- command history exists
+- day/night theme exists
+- confirmation UI exists
+- panel is hidden after tab load
+- Bridge state is separate per tab
+- parser runs only while Bridge is enabled
+- panel has X close button
+- Alt+Shift+A toggles Bridge
+- popup provides ON/OFF
+- popup uses a tooltip for the shortcut information
 
 Static checks previously verified:
-- NODE_CHECK=OK
-- BRIDGE_FUNCTIONS=True
-- PARSER_GUARD=True
-- CLOSE_BUTTON=True
 
-A previous PowerShell patch accidentally inserted a literal line-ending escape sequence into JavaScript and broke content.js; this was fixed. Missing openCommandPanel(), closeCommandPanel(), and toggleCommandPanel() were also added.
+- `NODE_CHECK=OK`
+- `BRIDGE_FUNCTIONS=True`
+- `PARSER_GUARD=True`
+- `CLOSE_BUTTON=True`
 
-## Current test status
+The extension is already installed and loaded in the user's **Brave** browser. Do **not** ask the user to reinstall it as a first response.
 
-Full suite:
+The project name says Edge Browser Bridge, but the current real-world E2E test is being performed in **Brave/Chromium**.
+
+---
+
+## 11. Critical current E2E finding
+
+The first real rendered-chat E2E has already succeeded through the complete execution path.
+
+A valid AGX1:C was manually pasted into a new ChatGPT chat in Brave:
+
+`AGX1:C:eyJhY3Rpb24iOiJzeXN0ZW0uaW5mbyIsImFyZ3MiOnt9fQ:09c5efa7890894ff4b634cf06c6bc3c52eee0227b33e5eb9ab818f9bf930ad20`
+
+Observed behavior:
+
+1. Bridge detected the C in the rendered DOM.
+2. Bridge authenticated the request to Gateway.
+3. Gateway accepted C.
+4. Gateway created internal A.
+5. Executor executed `system.info`.
+6. Gateway returned AGX1:R plus Ed25519 signature.
+7. Bridge accepted the returned result.
+8. Bridge inserted the AGX1:R into the ChatGPT composer.
+
+The returned RESULT decoded successfully to status `ok` with Windows system information.
+
+### What is NOT finished
+
+The Bridge **did not press Enter automatically** after inserting the RESULT.
+
+Therefore the current real-world chain is:
+
+**AI/DOM C → execute → R → composer**
+
+but not yet:
+
+**AI/DOM C → execute → R → composer → automatic send**
+
+This is the current primary browser-side bug/unfinished behavior.
+
+Do not treat this as a backend problem. The backend C/A/R chain is already proven.
+
+---
+
+## 12. Required final E2E behavior
+
+The intended behavior is now explicit:
+
+> When the rendered AI chat contains a valid AGX1:C, Browser Bridge parses it, executes it, inserts the resulting AGX1:R into the chat composer, and automatically presses Enter to send it.
+
+The Bridge must distinguish its own generated/sent result from ordinary user input so that automatic sending does not cause:
+
+- self-reprocessing
+- duplicate execution
+- command/result loops
+- accidental repeated parsing of its own generated RESULT
+
+A suitable internal flag/guard may be introduced in the browser layer, but it must be kept local to the Bridge and must not weaken protocol/security boundaries.
+
+The exact DOM send mechanism should be adapted to the current ChatGPT/Chromium composer instead of assuming a generic selector will always work.
+
+---
+
+## 13. Very important next E2E test instruction
+
+Do **not** ask the user to manually paste AGX1:C for the final test once the automatic-Enter fix is ready.
+
+The intended real test is:
+
+1. Start a new test chat in Brave.
+2. Ask the test AI itself to write a valid AGX1:C into the rendered chat.
+3. Browser Bridge should detect that AI-generated C.
+4. Bridge should execute it.
+5. Bridge should insert the signed R.
+6. Bridge should automatically press Enter.
+7. The chat should receive/send the result.
+8. Verify there is no execution loop or duplicate execution.
+
+When this test is ready to run, explicitly tell the user to **ask a test AI chat to write AGX1:C**.
+
+Do not prematurely ask for this before the automatic-submit code path is ready.
+
+---
+
+## 14. Current test status
+
+Full Python test suite:
+
 **83 tests — OK**
 
-Last full run:
-Ran 83 tests in 7.732s
-OK
+Last known full run:
 
-Recent additions:
-tests/test_command.py — 8 tests covering roundtrip, Unicode/nested args, tamper detection, invalid container, wrong kind, invalid action, missing action, and args type.
+`Ran 83 tests in 7.732s`
 
-tests/test_server.py:
-- test_command_endpoint
-- test_command_endpoint_rejects_tampered_container
+`OK`
 
-Integration results:
-- valid /v1/command → HTTP 200
-- tampered /v1/command → HTTP 409
+Recent COMMAND tests:
 
-## Current Doctor status
+`tests/test_command.py`
+
+8 tests covering:
+
+- roundtrip
+- Unicode/nested args
+- tamper detection
+- invalid container
+- wrong kind
+- invalid action
+- missing action
+- args must be object
+
+Recent server tests:
+
+`tests/test_server.py`
+
+- `test_command_endpoint`
+- `test_command_endpoint_rejects_tampered_container`
+
+Integration:
+
+- valid C → HTTP 200
+- tampered C → HTTP 409
+
+---
+
+## 15. Doctor status snapshot
+
+Last verified:
 
 **DOCTOR: PASS**
 
-Verified:
+Checks that passed:
+
 - Python 3.12.10
 - cryptography 50.0.1
-- Gateway PID 1732
+- Gateway process was running
 - 127.0.0.1:8765 listening
-- Health OK
-- Browser Auth paired and enabled
-- Auth challenge available, length 43
-- Result signing key present
-- Browser auth key present
-- Replay database present
-- Audit log valid JSONL, 35 recent lines checked
-- Autostart Ready, last result 0
-- Browser extension files present
-- JavaScript syntax checks passed
-- Python compilation passed
+- health OK
+- Browser Auth paired/enabled
+- auth challenge available
+- result signing key present
+- browser auth key present
+- replay database present
+- audit log valid JSONL
+- autostart task Ready
+- browser extension files present
+- JavaScript syntax checks
+- Python compilation
 - 83 tests OK
 
+Doctor command:
+
+`ops\doctor.ps1`
+
+Important:
+
+- PID and transient runtime values are snapshots and may change after restart.
+- Do not treat old PID values as required configuration.
+
 Browser test page:
-http://127.0.0.1:8766/index.html
 
-## Security invariants
+`http://127.0.0.1:8766/index.html`
 
-Do not break without a deliberate design decision:
-- rendered DOM is the command source
+At the beginning of the current E2E phase, port 8766 was **not listening**. Do not assume the test page is currently available without checking.
+
+---
+
+## 16. Security invariants — DO NOT BREAK
+
+Do not weaken or bypass these without an explicit design decision:
+
+- rendered DOM is the authoritative command source
 - direct AI API is not the primary command transport
-- AGX1:C remains a neutral command container
+- AGX1:C remains neutral
 - ACTION integrity uses SHA-256
-- RESULT protocol authentication uses HMAC
-- Browser-facing RESULT signing uses Ed25519
+- RESULT protocol authentication/integrity uses HMAC-SHA256
+- browser-facing RESULT uses persistent Ed25519 signing
 - replay protection is persistent
 - CONFIRM never executes before confirmation
 - DENY never executes
 - audit excludes args/result payloads
 - browser private signing key is never exported
 - Browser Auth challenges are one-time
-- tampered body/container is rejected
-- external dependencies are checked before use
+- tampered request body/container is rejected
+- external components are checked before use
 
-## Current project point
+---
 
-Backend, security, protocol, and HTTP C/A/R chain are in a verified working state:
+## 17. Known history / pitfalls
+
+Previously fixed issues:
+
+1. A PowerShell patch inserted a literal line-ending escape sequence into JavaScript and broke `content.js`. This was fixed.
+2. `openCommandPanel()`, `closeCommandPanel()`, and `toggleCommandPanel()` were previously missing and were added.
+3. Browser Bridge control/panel behavior was refined and verified by static checks.
+
+Avoid large blind PowerShell text replacements in JavaScript. Prefer targeted edits with immediate syntax/test validation.
+
+---
+
+## 18. Development/testing workflow
+
+User preferences:
+
+- Work in Python unless a browser extension file must be changed.
+- Prefer **one self-contained PowerShell command at a time**.
+- Whenever possible, copy command output to Windows Clipboard.
+- Keep responses/diagnostics compact; do not dump huge outputs unnecessarily.
+- Check every external dependency/component before using it.
+- If a required component is missing, explicitly offer installation instead of silently failing.
+- Add/update tests after meaningful code changes.
+- Run the full suite after runtime-affecting changes.
+- Run Doctor after runtime-affecting changes.
+- Update this HANDOFF after every meaningful project stage.
+
+---
+
+## 19. Current project point — START HERE
+
+Backend/protocol/security are already in a verified state:
 
 **83/83 tests + DOCTOR: PASS**
 
-Verified chain:
-**AGX1:C → /v1/command → AGX1:A → Executor → AGX1:R → signature**
+The most important already-proven path is:
 
-Next task is the real Edge/Chromium end-to-end test, not a backend redesign:
-1. AI emits AGX1:C into rendered chat DOM
-2. Browser Bridge detects it
-3. Browser Auth signs the HTTP request
-4. Gateway accepts C
-5. Gateway creates A
-6. Executor performs the action
-7. Gateway returns R + Ed25519 signature
-8. Browser Bridge verifies the signature
-9. R is inserted back into the AI chat DOM
-10. Test ALLOW, CONFIRM, DENY, and replay
+**AGX1:C → /v1/command → AGX1:A → Executor → AGX1:R → Ed25519 signature**
 
-## Work completed in the latest session
+The first real Brave/Chromium DOM E2E has also proven:
 
-1. Reviewed the existing C/A/R architecture.
-2. Added 8 COMMAND unit tests.
-3. Added /v1/command integration test.
-4. Verified valid C → /v1/command → R with HTTP 200.
-5. Added tampered-C integration test.
-6. Verified tampered C → HTTP 409.
-7. Full suite reached 83/83 OK.
-8. Doctor returned DOCTOR: PASS.
-9. HANDOFF is being updated as the continuity checkpoint.
+**rendered C → Bridge → Gateway → execution → signed R → Bridge → composer**
 
-## Git working-tree note
+### The one immediate unfinished item
 
-The previously confirmed clean state was before the latest test additions. The latest tests and this HANDOFF update must be checked with git status before the next commit. Do not assume the working tree is clean from the old status.
+**Fix Browser Bridge so that after inserting AGX1:R into the chat composer, it automatically sends the message by pressing Enter/correctly invoking the site's send action, while preventing the Bridge from reprocessing its own generated message.**
 
-## Instructions for the next AI
+Do not redesign the backend.
 
-- Read this HANDOFF first.
-- Do not repeat already-proven tests without a reason.
-- Understand existing architecture before changing code.
-- Do not redesign the whole protocol for a local issue.
-- Add/update tests after meaningful code changes.
-- Run the full suite and Doctor after runtime-affecting changes.
-- **Always update HANDOFF.md after a meaningful project stage.**
-- Prefer one self-contained PowerShell command at a time.
-- When possible, copy PowerShell output to Windows Clipboard.
-- If an external component is missing, explicitly offer installation.
-- If context is lost, use this HANDOFF as the continuity source and continue from Current project point.
+After that fix:
+
+- add/adjust browser-side tests or static checks as appropriate
+- run full tests
+- run Doctor
+- update HANDOFF again
+- then perform the true AI-generated-C E2E test in Brave
+
+---
+
+## 20. Instructions for the next AI
+
+1. Read this file first.
+2. Continue from section 19.
+3. Do not repeat already-proven backend work without a specific reason.
+4. Inspect the existing `content.js` send/composer logic before modifying it.
+5. Make the smallest safe browser-side change that enables automatic submission.
+6. Add a loop/reprocessing guard for Bridge-generated messages/results.
+7. Preserve all security invariants.
+8. Test the change.
+9. Run full suite + Doctor.
+10. Update HANDOFF.md again after the stage is complete.
+11. When the real AI-generated-command test is ready, ask the user to have a test AI chat write AGX1:C into the rendered chat.
+12. Prefer one self-contained PowerShell command per step and copy output to clipboard when possible.
+
+**Continuity rule: this HANDOFF is the first document to read after context loss.**
