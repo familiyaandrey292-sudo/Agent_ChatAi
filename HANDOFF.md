@@ -755,6 +755,8 @@ For the final AI-generated-command test, the user should ask a test AI chat to w
 9. Run full suite + Doctor.
 10. Update HANDOFF.md again after the stage is complete.
 11. When the real AI-generated-command test is ready, ask the user to have a test AI chat write AGX1:C into the rendered chat.
-12. Prefer one self-contained PowerShell command per step and copy output to clipboard when possible.
+12. Prefer one self-contained PowerShell command per step.
+13. **Whenever a PowerShell command is given because its output/result is needed, or because successful execution itself is evidence for the next step, the command MUST copy its output to the Windows Clipboard.**
+14. Keep command output compact; copy the same result that is shown in the console.
 
 **Continuity rule: this HANDOFF is the first document to read after context loss.**
