@@ -939,6 +939,17 @@ The discovery algorithm remains:
 
 Next browser verification target: complete Claude by allowing the AI response containing the expected product to appear and confirming transition to **Готово**. After that, proceed to the true AI-generated `AGX1:C` E2E.
 
+### Test syntax correction — 2026-09-25
+
+The previous full-suite run stopped at 84 collected tests because `tests/test_browser_discovery.py` contained an unterminated Python string literal in the new submit-action assertion.
+
+This was a test-file syntax defect only; runtime code was not implicated.
+
+Commit:
+- `5c9b168809be9e65fc23e5561708b7b070b776c9` — fix test string literal
+
+Next step: local `git pull --ff-only`, then full test suite.
+
 ## 20. Current project point — START HERE
 
 Backend/protocol/security are in a verified state, and the current local code checkpoint has passed the full validation suite:
