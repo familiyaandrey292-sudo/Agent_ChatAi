@@ -772,6 +772,25 @@ The final discovery algorithm remains:
 
 Browser verification is still pending after this latest change.
 
+### Latest discovery principle correction: capture user actions, not control state
+
+The discovery requirement was clarified: the Bridge must learn from **actual user actions**, not by inspecting whether a control currently looks enabled, visible, clickable, or otherwise has a particular state.
+
+The send-learning step now listens for a trusted user `click` / `pointerup` event after the real composer has been captured. It records an element from the event's `composedPath()` that can receive `.click()`, without using `isDiscoverySendButton()` or button-state heuristics.
+
+This means the learning signal is:
+
+**user inserted test phrase → real input event → user actually clicked → capture the clicked DOM target**
+
+The answer-learning signal remains:
+
+**AI response appears → Bridge matches its computed X×Y result → capture the response field**
+
+Relevant commits:
+- `80b11469c824214b788e52bd78b2e1f689bf19bb` test coverage for event-driven action capture
+
+Browser verification is still pending.
+
 ## 20. Current project point — START HERE
 
 Backend/protocol/security are already in a verified state:
