@@ -238,6 +238,22 @@ class TestBrowserDiscoveryStatic(unittest.TestCase):
             self.popup_js
         )
 
+    def test_discovery_traces_window_user_events(self):
+        for marker in (
+            "traceDiscoveryUserEvent",
+            '"window_user_event"',
+            '"mousedown"',
+            '"mouseup"',
+            '"touchstart"',
+            '"touchend"',
+            '"keydown"',
+            "window.addEventListener",
+        ):
+            self.assertIn(
+                marker,
+                self.content_js
+            )
+
     def test_discovery_state_reports_trace(self):
         self.assertIn(
             "traceStartedAt",
