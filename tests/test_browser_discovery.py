@@ -151,6 +151,16 @@ class TestBrowserDiscoveryStatic(unittest.TestCase):
             scan
         )
 
+
+    def test_content_captures_generic_send_control_from_event_path(self):
+        for marker in (
+            "interactiveCandidates",
+            "getComputedStyle",
+            '"pointerup"',
+            "event?.composedPath?.()",
+        ):
+            self.assertIn(marker, self.content_js)
+
     def test_result_submission_prefers_learned_send_button(self):
         pattern = re.compile(
             r"function\s+findChatSubmitButton\(composer\).*?"
