@@ -113,6 +113,44 @@ class TestBrowserDiscoveryStatic(unittest.TestCase):
         ):
             self.assertIn(marker, self.content_js)
 
+
+    def test_popup_computes_expected_result(self):
+        for marker in (
+            "BigInt(x)",
+            "BigInt(y)",
+            "currentDiscoveryResult",
+            "expectedResult:",
+        ):
+            self.assertIn(marker, self.popup_js)
+
+    def test_content_requires_expected_result(self):
+        for marker in (
+            "missing_expected_result",
+            "chatDiscovery.expectedResult",
+            "normalizeDiscoveryNumber",
+            "findDiscoveryResultElement",
+        ):
+            self.assertIn(marker, self.content_js)
+
+    def test_content_does_not_search_original_phrase_for_answer(self):
+        start = self.content_js.index(
+            "function runChatDiscoveryScan"
+        )
+        end = self.content_js.index(
+            "function startChatDiscovery",
+            start
+        )
+        scan = self.content_js[start:end]
+
+        self.assertIn(
+            "chatDiscovery.expectedResult",
+            scan
+        )
+        self.assertNotIn(
+            "findDiscoveryRenderedText",
+            scan
+        )
+
     def test_result_submission_prefers_learned_send_button(self):
         pattern = re.compile(
             r"function\s+findChatSubmitButton\(composer\).*?"
