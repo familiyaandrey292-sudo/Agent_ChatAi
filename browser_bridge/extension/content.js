@@ -310,150 +310,43 @@ function getDiscoveryEditableTarget(
     ) || null;
 }
 
-function getDiscoveryEventElement(
+function getTrustedUserActionTarget(
     event,
-    selector,
-    composer = null
-) {
-    const path =
-        event?.composedPath?.() || [];
-
-    const interactiveCandidates = [];
-
-    for (const item of path) {
-        if (
-            !(item instanceof Element)
-        ) {
-            continue;
-        }
-
-        if (
-            item.matches?.(selector)
-        ) {
-            interactiveCandidates.push(item);
-            continue;
-        }
-
-        const tag =
-            item.tagName?.toLowerCase() || "";
-
-        const role =
-            item.getAttribute?.("role") || "";
-
-        const aria =
-            item.getAttribute?.("aria-label") ||
-            item.getAttribute?.("title") ||
-            item.getAttribute?.("data-testid") ||
-            item.getAttribute?.("data-qa") ||
-            "";
-
-        let pointer = false;
-
-        try {
-            pointer =
-                window.getComputedStyle(
-                    item
-                ).cursor === "pointer";
-        } catch (_) {}
-
-        const tabindex =
-            item.getAttribute?.("tabindex");
-
-        if (
-            tag === "button" ||
-            tag === "input" ||
-            role === "button" ||
-            aria ||
-            pointer ||
-            (
-                tabindex !== null &&
-                tabindex !== "-1"
-            )
-        ) {
-            interactiveCandidates.push(item);
-        }
-    }
-
-    for (const candidate
-        of interactiveCandidates) {
-        if (
-            candidate !== composer &&
-            isDiscoverySendButton(
-                candidate,
-                composer
-            )
-        ) {
-            return candidate;
-        }
-    }
-
-    const target =
-        event?.target instanceof Element
-            ? event.target
-            : null;
-
-    if (target) {
-        try {
-            const targetStyle =
-                window.getComputedStyle(
-                    target
-                );
-
-            if (
-                targetStyle.cursor === "pointer" &&
-                isDiscoverySendButton(
-                    target,
-                    composer
-                )
-            ) {
-                return target;
-            }
-        } catch (_) {}
-    }
-
-    return target?.closest?.(
-        selector
-    ) || null;
-}
-
-function isDiscoverySendButton(
-    button,
     composer
 ) {
     if (
-        !button ||
-        !isVisibleEditable(button) ||
-        button === composer
+        event?.isTrusted !== true ||
+        !composer
     ) {
-        return false;
+        return null;
     }
 
-    const composerForm =
-        composer?.closest?.("form");
+    const path =
+        event.composedPath?.() || [];
 
-    if (
-        composerForm &&
-        button.closest("form") === composerForm
-    ) {
-        return true;
-    }
+    for (const item of path) {
+        if (
+            !(item instanceof Element) ||
+            item === composer ||
+            composer.contains(item)
+        ) {
+            continue;
+        }
 
-    const br =
-        button.getBoundingClientRect();
-
-    const cr =
-        composer?.getBoundingClientRect();
-
-    if (!cr || !br) {
-        return false;
+        if (
+            typeof item.click === "function"
+        ) {
+            return item;
+        }
     }
 
     return (
-        br.bottom >= cr.top - 120 &&
-        br.top <= cr.bottom + 120 &&
-        br.right >= cr.left - 160 &&
-        br.left <= cr.right + 160
-    );
+        event.target instanceof Element &&
+        event.target !== composer &&
+        !composer.contains(event.target)
+    )
+        ? event.target
+        : null;
 }
 
 function findDiscoveryRenderedText(text) {
@@ -1017,25 +910,19 @@ function handleChatDiscoveryClick(
         return;
     }
 
-    const button =
-        getDiscoveryEventElement(
+    const actionTarget =
+        getTrustedUserActionTarget(
             event,
-            'button, [role="button"], input[type="submit"]',
             chatDiscovery.composer
         );
 
-    if (
-        !button ||
-        !isDiscoverySendButton(
-            button,
-            chatDiscovery.composer
-        )
-    ) {
+    if (!actionTarget) {
         return;
     }
 
     chatDiscovery.sendButton =
-        button;
+        actionTarget;
+
     chatDiscovery.preSendPageText =
         normalizeChatDiscoveryText(
             document.body?.innerText || ""
@@ -1049,7 +936,7 @@ function handleChatDiscoveryClick(
             ),
         sendButtonSelector:
             getElementSelector(
-                button
+                actionTarget
             )
     };
 
@@ -1064,7 +951,6 @@ function handleChatDiscoveryClick(
         50
     );
 }
-
 
 function extractActionContainers(text) {
     if (typeof text !== "string" || !text.length) {
