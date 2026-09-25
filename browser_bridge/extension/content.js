@@ -324,13 +324,42 @@ function getTrustedUserActionTarget(
     const path =
         event.composedPath?.() || [];
 
+    const editableSelector =
+        '[contenteditable="true"], textarea, input[type="text"], [role="textbox"]';
+
     for (const item of path) {
-        if (
-            !(item instanceof Element) ||
-            item === composer ||
-            composer.contains(item)
-        ) {
+        if (!(item instanceof Element)) {
             continue;
+        }
+
+        if (item === composer) {
+            break;
+        }
+
+        if (item.matches(editableSelector)) {
+            break;
+        }
+
+        if (
+            item.matches(
+                'button, [role="button"], input[type="submit"]'
+            )
+        ) {
+            return item;
+        }
+    }
+
+    for (const item of path) {
+        if (!(item instanceof Element)) {
+            continue;
+        }
+
+        if (item === composer) {
+            break;
+        }
+
+        if (item.matches(editableSelector)) {
+            break;
         }
 
         if (
@@ -343,7 +372,7 @@ function getTrustedUserActionTarget(
     return (
         event.target instanceof Element &&
         event.target !== composer &&
-        !composer.contains(event.target)
+        !event.target.matches(editableSelector)
     )
         ? event.target
         : null;
