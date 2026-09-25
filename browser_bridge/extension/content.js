@@ -92,8 +92,88 @@ const chatDiscovery = {
     preSendPageText: "",
     composer: null,
     sendButton: null,
-    messageElement: null
+    messageElement: null,
+    trace: [],
+    traceStartedAt: null,
+    scanCount: 0
 };
+
+const CHAT_DISCOVERY_TRACE_LIMIT = 250;
+
+function describeDiscoveryElement(element) {
+    if (
+        !element ||
+        element.nodeType !== 1 ||
+        typeof element.getAttribute !== "function"
+    ) {
+        return null;
+    }
+
+    const text =
+        String(
+            element.getAttribute("aria-label") ||
+            element.getAttribute("data-testid") ||
+            element.getAttribute("title") ||
+            element.textContent ||
+            ""
+        )
+            .replace(/\s+/g, " ")
+            .trim();
+
+    return {
+        tag: element.tagName?.toLowerCase() || "",
+        id: element.id || "",
+        role: element.getAttribute("role") || "",
+        ariaLabel:
+            element.getAttribute("aria-label") || "",
+        testId:
+            element.getAttribute("data-testid") || "",
+        title:
+            element.getAttribute("title") || "",
+        text:
+            text.length > 120
+                ? text.slice(0, 117) + "..."
+                : text,
+        selector:
+            getElementSelector(element)
+    };
+}
+
+function discoveryTrace(
+    event,
+    data = {}
+) {
+    const now = new Date();
+
+    if (!chatDiscovery.traceStartedAt) {
+        chatDiscovery.traceStartedAt =
+            now.toISOString();
+    }
+
+    chatDiscovery.trace.push({
+        t: now.toISOString(),
+        event,
+        ...data
+    });
+
+    if (
+        chatDiscovery.trace.length >
+        CHAT_DISCOVERY_TRACE_LIMIT
+    ) {
+        chatDiscovery.trace.splice(
+            0,
+            chatDiscovery.trace.length -
+                CHAT_DISCOVERY_TRACE_LIMIT
+        );
+    }
+}
+
+function discoveryTraceEventPath(event) {
+    return (event?.composedPath?.() || [])
+        .filter(isDiscoveryElement)
+        .slice(0, 20)
+        .map(describeDiscoveryElement);
+}
 
 function loadChatDiscoveryProfile() {
     try {
@@ -506,11 +586,22 @@ function discoverChatMessageContainer(element) {
 function setChatDiscoveryPhase(
     phase
 ) {
+    const previous =
+        chatDiscovery.phase;
+
     chatDiscovery.phase = phase;
 
     document.documentElement.dataset
         .agentChataiChatDiscovery =
         phase;
+
+    discoveryTrace(
+        "phase",
+        {
+            from: previous,
+            to: phase
+        }
+    );
 }
 
 function normalizeDiscoveryNumber(value) {
@@ -642,6 +733,8 @@ function runChatDiscoveryScan() {
         return false;
     }
 
+    chatDiscovery.scanCount += 1;
+
     const expected =
         normalizeDiscoveryNumber(
             chatDiscovery.expectedResult
@@ -653,12 +746,28 @@ function runChatDiscoveryScan() {
         );
 
     if (!expected) {
+        discoveryTrace(
+            "scan",
+            {
+                reason:
+                    "missing_expected_result"
+            }
+        );
         return false;
     }
 
     if (
         before.indexOf(expected) >= 0
     ) {
+        discoveryTrace(
+            "scan",
+            {
+                reason:
+                    "expected_result_already_present_before_send",
+                scan:
+                    chatDiscovery.scanCount
+            }
+        );
         return false;
     }
 
@@ -668,8 +777,38 @@ function runChatDiscoveryScan() {
         );
 
     if (!element) {
+        if (
+            chatDiscovery.scanCount === 1 ||
+            chatDiscovery.scanCount % 10 === 0
+        ) {
+            discoveryTrace(
+                "scan",
+                {
+                    reason:
+                        "expected_result_not_found",
+                    scan:
+                        chatDiscovery.scanCount,
+                    expectedResult:
+                        expected
+                }
+            );
+        }
         return false;
     }
+
+    discoveryTrace(
+        "result_found",
+        {
+            scan:
+                chatDiscovery.scanCount,
+            expectedResult:
+                expected,
+            element:
+                describeDiscoveryElement(
+                    element
+                )
+        }
+    );
 
     chatDiscovery.messageElement =
         discoverChatMessageContainer(
@@ -739,6 +878,18 @@ function startChatDiscovery(
         };
     }
 
+    chatDiscovery.trace = [];
+    chatDiscovery.traceStartedAt = null;
+    chatDiscovery.scanCount = 0;
+
+    discoveryTrace(
+        "start_requested",
+        {
+            phrase,
+            expectedResult
+        }
+    );
+
     chatDiscovery.active = true;
     scheduleDiscoveryPoll();
 
@@ -759,6 +910,16 @@ function startChatDiscovery(
 
     setChatDiscoveryPhase(
         "wait_input"
+    );
+
+    discoveryTrace(
+        "started",
+        {
+            phrase:
+                chatDiscovery.phrase,
+            expectedResult:
+                chatDiscovery.expectedResult
+        }
     );
 
     return getChatDiscoveryState();
@@ -801,13 +962,37 @@ function getChatDiscoveryState() {
                     .composerSelector &&
                 chatDiscoveryProfile
                     .sendButtonSelector
-            )
+            ),
+        traceStartedAt:
+            chatDiscovery.traceStartedAt,
+        traceCount:
+            chatDiscovery.trace.length,
+        trace:
+            chatDiscovery.trace.slice()
     };
 }
 
 function handleChatDiscoveryInput(
     event
 ) {
+    discoveryTrace(
+        "input_event",
+        {
+            type:
+                event?.type || "",
+            isTrusted:
+                event?.isTrusted === true,
+            target:
+                describeDiscoveryElement(
+                    event?.target
+                ),
+            path:
+                discoveryTraceEventPath(
+                    event
+                )
+        }
+    );
+
     if (
         !chatDiscovery.active ||
         chatDiscovery.phase !==
@@ -823,6 +1008,13 @@ function handleChatDiscoveryInput(
         );
 
     if (!composer) {
+        discoveryTrace(
+            "input_ignored",
+            {
+                reason:
+                    "no_composer_from_event"
+            }
+        );
         return;
     }
 
@@ -839,11 +1031,38 @@ function handleChatDiscoveryInput(
             chatDiscovery.phrase
         )
     ) {
+        discoveryTrace(
+            "input_ignored",
+            {
+                reason:
+                    "composer_text_mismatch",
+                actualLength:
+                    actual.length,
+                expectedLength:
+                    normalizeChatDiscoveryText(
+                        chatDiscovery.phrase
+                    ).length,
+                composer:
+                    describeDiscoveryElement(
+                        composer
+                    )
+            }
+        );
         return;
     }
 
     chatDiscovery.composer =
         composer;
+
+    discoveryTrace(
+        "composer_captured",
+        {
+            composer:
+                describeDiscoveryElement(
+                    composer
+                )
+        }
+    );
 
     chatDiscoveryProfile = {
         ...chatDiscoveryProfile,
@@ -937,6 +1156,28 @@ function scanForDiscoveryInput() {
 function handleChatDiscoveryClick(
     event
 ) {
+    discoveryTrace(
+        "user_action_event",
+        {
+            type:
+                event?.type || "",
+            isTrusted:
+                event?.isTrusted === true,
+            target:
+                describeDiscoveryElement(
+                    event?.target
+                ),
+            path:
+                discoveryTraceEventPath(
+                    event
+                ),
+            composer:
+                describeDiscoveryElement(
+                    chatDiscovery.composer
+                )
+        }
+    );
+
     if (
         !chatDiscovery.active ||
         chatDiscovery.phase !==
@@ -952,16 +1193,51 @@ function handleChatDiscoveryClick(
         );
 
     if (!actionTarget) {
+        discoveryTrace(
+            "user_action_ignored",
+            {
+                reason:
+                    "no_action_target"
+            }
+        );
         return;
     }
 
     chatDiscovery.sendButton =
         actionTarget;
 
+    discoveryTrace(
+        "send_control_captured",
+        {
+            eventType:
+                event?.type || "",
+            sendButton:
+                describeDiscoveryElement(
+                    actionTarget
+                )
+        }
+    );
+
     chatDiscovery.preSendPageText =
         normalizeChatDiscoveryText(
             document.body?.innerText || ""
         );
+
+    discoveryTrace(
+        "pre_send_snapshot",
+        {
+            pageTextLength:
+                chatDiscovery.preSendPageText.length,
+            expectedAlreadyPresent:
+                normalizeDiscoveryNumber(
+                    chatDiscovery.preSendPageText
+                ).indexOf(
+                    normalizeDiscoveryNumber(
+                        chatDiscovery.expectedResult
+                    )
+                ) >= 0
+        }
+    );
 
     chatDiscoveryProfile = {
         ...chatDiscoveryProfile,
