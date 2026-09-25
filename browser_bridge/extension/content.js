@@ -334,45 +334,84 @@ function findDiscoveryRenderedText(text) {
         return null;
     }
 
+    const candidates = [];
     const walker =
         document.createTreeWalker(
             document.body,
-            NodeFilter.SHOW_TEXT
+            NodeFilter.SHOW_ELEMENT
         );
 
-    let node = null;
+    let element = null;
 
     while (
-        (node = walker.nextNode())
+        (element = walker.nextNode())
     ) {
-        const parent =
-            node.parentElement;
-
         if (
-            !parent ||
-            parent === chatDiscovery.composer ||
-            parent.closest?.(
+            element === chatDiscovery.composer ||
+            element.closest?.(
                 '[data-agent-chatai-bridge-panel="1"]'
             )
         ) {
             continue;
         }
 
-        const parentText =
+        const value =
             normalizeChatDiscoveryText(
-                parent.innerText ||
-                parent.textContent ||
+                element.innerText ||
+                element.textContent ||
                 ""
             );
 
-        if (parentText !== wanted) {
+        if (value !== wanted) {
             continue;
         }
 
-        return parent;
+        const rect =
+            element.getBoundingClientRect();
+
+        const style =
+            window.getComputedStyle(element);
+
+        if (
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            rect.width <= 0 ||
+            rect.height <= 0
+        ) {
+            continue;
+        }
+
+        candidates.push(element);
     }
 
-    return null;
+    candidates.sort(
+        (a, b) => {
+            const aLength =
+                (
+                    a.innerText ||
+                    a.textContent ||
+                    ""
+                ).length;
+
+            const bLength =
+                (
+                    b.innerText ||
+                    b.textContent ||
+                    ""
+                ).length;
+
+            if (aLength !== bLength) {
+                return aLength - bLength;
+            }
+
+            return (
+                a.getElementsByTagName("*").length -
+                b.getElementsByTagName("*").length
+            );
+        }
+    );
+
+    return candidates[0] || null;
 }
 
 function discoverChatMessageContainer(element) {
