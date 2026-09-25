@@ -280,8 +280,7 @@ class TestBrowserDiscoveryStatic(unittest.TestCase):
             )
 
         self.assertIn(
-            'document.addEventListener(
-    "submit"',
+            'document.addEventListener(\n    "submit"',
             self.content_js
         )
 
