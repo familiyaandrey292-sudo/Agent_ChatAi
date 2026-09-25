@@ -428,7 +428,7 @@ Full Python test suite:
 
 Last known full run:
 
-`Ran 83 tests in 7.732s`
+`Ran 89 tests in 7.732s`
 
 `OK`
 
@@ -484,7 +484,7 @@ Checks that passed:
 - browser extension files present
 - JavaScript syntax checks
 - Python compilation
-- 83 tests OK
+- 89 tests OK
 
 Doctor command:
 
@@ -569,7 +569,7 @@ Commit `732c7e81feda2307b6e5b78c6ef56bd75fcdf3fc` added Browser Bridge result au
 - guard against reprocessing Bridge-generated text
 - verification that the composer still contains the exact RESULT before sending
 
-The earlier auto-submit hardening was syntax-checked and the full Python suite passed before the universal discovery changes. The universal discovery changes below still require local browser/test verification.
+The earlier auto-submit hardening was syntax-checked and the full Python suite passed before the universal discovery changes. The universal discovery changes below still require local browser verification.
 
 ### Universal chat discovery mode
 
@@ -612,11 +612,40 @@ This is intentionally site-agnostic: it learns from the real DOM interaction rat
 
 **Important:** the universal discovery implementation is currently **code-complete but not yet browser-verified** in Brave after the latest changes.
 
+
+
+### Latest verified backend/runtime checkpoint
+
+After the universal discovery implementation:
+
+- full Python suite: **89 tests, OK**
+- Doctor: **DOCTOR: PASS**
+- JavaScript syntax: PASS
+- Python compilation: PASS
+- Gateway health: PASS
+- Browser Auth: paired/enabled
+- RESULT signing key: present
+- Replay database: present
+- Audit JSONL: valid
+
+Latest related commits:
+
+- `732c7e81feda2307b6e5b78c6ef56bd75fcdf3fc` — auto-submit hardening
+- `d61ff3149c086eefb669c1b06c332d3625ec9d60` — universal chat discovery in content.js
+- `6bdc4bbeb4f0275e0e49efe1f7a30d839dad090` — discovery UI in popup.html
+- `5181c3d0006c42a8185ad8dc1fb936d3c1414366` — discovery logic in popup.js
+- `c43a7ffa5629ab102727bc391127faf9d626edaf` — six static discovery tests
+- `bd71c9a66f72ae4df250f4f64075c9d79c5353f0` — fixed discovery UI static test
+- `ec5946a52ebf8232de41ddab2fcd876f486f7a0f` — HANDOFF checkpoint
+- `bbdc72cc75fd6af82ce7463be4456e24bfda1352` — HANDOFF verification-status correction
+
+Current GitHub HEAD is later than the above intermediate commits; local `git pull --ff-only` was already confirmed up to date before the latest test run.
+
 ## 20. Current project point — START HERE
 
 Backend/protocol/security are already in a verified state:
 
-**83/83 tests + DOCTOR: PASS**
+**89/89 tests + DOCTOR: PASS**
 
 The most important already-proven path is:
 
