@@ -2,6 +2,37 @@
 
 chrome.runtime.onMessage.addListener(
     (message, sender, sendResponse) => {
+        if (
+            message?.type ===
+            "AGX_CHAT_DISCOVERY_START"
+        ) {
+            sendResponse(
+                startChatDiscovery(
+                    message.phrase
+                )
+            );
+            return false;
+        }
+
+        if (
+            message?.type ===
+            "AGX_CHAT_DISCOVERY_STOP"
+        ) {
+            sendResponse(
+                stopChatDiscovery()
+            );
+            return false;
+        }
+
+        if (
+            message?.type ===
+            "AGX_CHAT_DISCOVERY_STATE"
+        ) {
+            sendResponse(
+                getChatDiscoveryState()
+            );
+            return false;
+        }
         if (message?.type === "AGX_GET_BRIDGE_STATE") {
             sendResponse({
                 ok: true,
@@ -46,6 +77,573 @@ let lastPublishedResult = null;
 let bridgeGeneratedComposer = null;
 const BRIDGE_SEND_RETRY_MS = 100;
 const BRIDGE_SEND_MAX_ATTEMPTS = 25;
+const CHAT_DISCOVERY_STORAGE_KEY =
+    "agentChataiChatDiscovery";
+
+let chatDiscoveryProfile =
+    loadChatDiscoveryProfile();
+
+const chatDiscovery = {
+    active: false,
+    phase: "idle",
+    phrase: "",
+    composer: null,
+    sendButton: null,
+    messageElement: null
+};
+
+function loadChatDiscoveryProfile() {
+    try {
+        const raw =
+            localStorage.getItem(
+                CHAT_DISCOVERY_STORAGE_KEY
+            );
+
+        if (!raw) {
+            return {};
+        }
+
+        const value = JSON.parse(raw);
+
+        return value &&
+            typeof value === "object"
+            ? value
+            : {};
+    } catch (_) {
+        return {};
+    }
+}
+
+function saveChatDiscoveryProfile() {
+    try {
+        localStorage.setItem(
+            CHAT_DISCOVERY_STORAGE_KEY,
+            JSON.stringify(
+                chatDiscoveryProfile
+            )
+        );
+    } catch (_) {}
+}
+
+function cssEscapeValue(value) {
+    if (
+        globalThis.CSS &&
+        typeof CSS.escape === "function"
+    ) {
+        return CSS.escape(String(value));
+    }
+
+    return String(value)
+        .replace(/\\/g, "\\\\")
+        .replace(/"/g, '\\"');
+}
+
+function getElementSelector(element) {
+    if (
+        !element ||
+        !document.documentElement.contains(element)
+    ) {
+        return "";
+    }
+
+    const stableAttributes = [
+        "data-testid",
+        "data-qa",
+        "data-test",
+        "aria-label",
+        "name",
+        "placeholder"
+    ];
+
+    for (const attribute of stableAttributes) {
+        const value =
+            element.getAttribute(attribute);
+
+        if (!value) {
+            continue;
+        }
+
+        const selector =
+            element.tagName.toLowerCase() +
+            "[" + attribute + "=\"" +
+            cssEscapeValue(value) +
+            "\"]";
+
+        try {
+            if (
+                document.querySelectorAll(selector)
+                    .length === 1
+            ) {
+                return selector;
+            }
+        } catch (_) {}
+    }
+
+    const id =
+        element.getAttribute("id");
+
+    if (id) {
+        const selector =
+            "#" + cssEscapeValue(id);
+
+        try {
+            if (
+                document.querySelectorAll(selector)
+                    .length === 1
+            ) {
+                return selector;
+            }
+        } catch (_) {}
+    }
+
+    const path = [];
+    let current = element;
+
+    while (
+        current &&
+        current.nodeType === Node.ELEMENT_NODE &&
+        path.length < 8
+    ) {
+        let segment =
+            current.tagName.toLowerCase();
+
+        if (current.id) {
+            segment +=
+                "#" + cssEscapeValue(current.id);
+            path.unshift(segment);
+            break;
+        }
+
+        let index = 1;
+        let sibling = current;
+
+        while (
+            sibling.previousElementSibling
+        ) {
+            sibling =
+                sibling.previousElementSibling;
+
+            if (
+                sibling.tagName ===
+                current.tagName
+            ) {
+                index += 1;
+            }
+        }
+
+        segment +=
+            ":nth-of-type(" + index + ")";
+
+        path.unshift(segment);
+        current =
+            current.parentElement;
+    }
+
+    return path.join(" > ");
+}
+
+function findChatDiscoveryElement(
+    selector
+) {
+    if (!selector) {
+        return null;
+    }
+
+    try {
+        const element =
+            document.querySelector(selector);
+
+        return isVisibleEditable(element)
+            ? element
+            : null;
+    } catch (_) {
+        return null;
+    }
+}
+
+function normalizeChatDiscoveryText(text) {
+    return String(text || "")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+function getEditableText(element) {
+    if (
+        element instanceof HTMLTextAreaElement ||
+        element instanceof HTMLInputElement
+    ) {
+        return element.value || "";
+    }
+
+    return element?.innerText ||
+        element?.textContent ||
+        "";
+}
+
+function getDiscoveryEditableTarget(target) {
+    return target?.closest?.(
+        '[contenteditable="true"], textarea, input[type="text"], [role="textbox"]'
+    ) || null;
+}
+
+function isDiscoverySendButton(
+    button,
+    composer
+) {
+    if (
+        !button ||
+        !isVisibleEditable(button) ||
+        button === composer
+    ) {
+        return false;
+    }
+
+    const composerForm =
+        composer?.closest?.("form");
+
+    if (
+        composerForm &&
+        button.closest("form") === composerForm
+    ) {
+        return true;
+    }
+
+    const br =
+        button.getBoundingClientRect();
+
+    const cr =
+        composer?.getBoundingClientRect();
+
+    if (!cr || !br) {
+        return false;
+    }
+
+    return (
+        br.bottom >= cr.top - 120 &&
+        br.top <= cr.bottom + 120 &&
+        br.right >= cr.left - 160 &&
+        br.left <= cr.right + 160
+    );
+}
+
+function findDiscoveryRenderedText(text) {
+    const wanted =
+        normalizeChatDiscoveryText(text);
+
+    if (!wanted) {
+        return null;
+    }
+
+    const walker =
+        document.createTreeWalker(
+            document.body,
+            NodeFilter.SHOW_TEXT
+        );
+
+    let node = null;
+
+    while (
+        (node = walker.nextNode())
+    ) {
+        const parent =
+            node.parentElement;
+
+        if (
+            !parent ||
+            parent === chatDiscovery.composer ||
+            parent.closest?.(
+                '[data-agent-chatai-bridge-panel="1"]'
+            )
+        ) {
+            continue;
+        }
+
+        const parentText =
+            normalizeChatDiscoveryText(
+                parent.innerText ||
+                parent.textContent ||
+                ""
+            );
+
+        if (parentText !== wanted) {
+            continue;
+        }
+
+        return parent;
+    }
+
+    return null;
+}
+
+function discoverChatMessageContainer(element) {
+    let current = element;
+
+    for (
+        let depth = 0;
+        current && depth < 4;
+        depth += 1
+    ) {
+        if (
+            current !== chatDiscovery.composer &&
+            current.parentElement &&
+            normalizeChatDiscoveryText(
+                current.innerText ||
+                current.textContent ||
+                ""
+            ) ===
+                normalizeChatDiscoveryText(
+                    chatDiscovery.phrase
+                )
+        ) {
+            current =
+                current.parentElement;
+            continue;
+        }
+
+        break;
+    }
+
+    return current || element;
+}
+
+function setChatDiscoveryPhase(
+    phase
+) {
+    chatDiscovery.phase = phase;
+
+    document.documentElement.dataset
+        .agentChataiChatDiscovery =
+        phase;
+}
+
+function runChatDiscoveryScan() {
+    if (
+        !chatDiscovery.active ||
+        chatDiscovery.phase !==
+            "wait_message"
+    ) {
+        return false;
+    }
+
+    const element =
+        findDiscoveryRenderedText(
+            chatDiscovery.phrase
+        );
+
+    if (!element) {
+        return false;
+    }
+
+    chatDiscovery.messageElement =
+        discoverChatMessageContainer(
+            element
+        );
+
+    chatDiscoveryProfile = {
+        ...chatDiscoveryProfile,
+        composerSelector:
+            getElementSelector(
+                chatDiscovery.composer
+            ),
+        sendButtonSelector:
+            getElementSelector(
+                chatDiscovery.sendButton
+            ),
+        messageSelector:
+            getElementSelector(
+                chatDiscovery.messageElement
+            ),
+        phrase:
+            chatDiscovery.phrase,
+        learnedAt:
+            new Date().toISOString()
+    };
+
+    saveChatDiscoveryProfile();
+
+    setChatDiscoveryPhase(
+        "complete"
+    );
+
+    chatDiscovery.active = false;
+
+    document.documentElement.dataset
+        .agentChataiChatDiscoveryReady =
+        "1";
+
+    return true;
+}
+
+function startChatDiscovery(
+    phrase
+) {
+    if (
+        typeof phrase !== "string" ||
+        !phrase.trim()
+    ) {
+        return {
+            ok: false,
+            error: "missing_discovery_phrase"
+        };
+    }
+
+    chatDiscovery.active = true;
+    chatDiscovery.phrase =
+        normalizeChatDiscoveryText(
+            phrase
+        );
+    chatDiscovery.composer = null;
+    chatDiscovery.sendButton = null;
+    chatDiscovery.messageElement = null;
+
+    document.documentElement.dataset
+        .agentChataiChatDiscoveryReady =
+        "0";
+
+    setChatDiscoveryPhase(
+        "wait_input"
+    );
+
+    return getChatDiscoveryState();
+}
+
+function stopChatDiscovery() {
+    chatDiscovery.active = false;
+    chatDiscovery.composer = null;
+    chatDiscovery.sendButton = null;
+    chatDiscovery.messageElement = null;
+    chatDiscovery.phrase = "";
+
+    setChatDiscoveryPhase(
+        "idle"
+    );
+
+    return getChatDiscoveryState();
+}
+
+function getChatDiscoveryState() {
+    return {
+        ok: true,
+        active: chatDiscovery.active,
+        phase: chatDiscovery.phase,
+        phrase: chatDiscovery.phrase,
+        learned:
+            Boolean(
+                chatDiscoveryProfile
+                    .composerSelector &&
+                chatDiscoveryProfile
+                    .sendButtonSelector
+            )
+    };
+}
+
+function handleChatDiscoveryInput(
+    event
+) {
+    if (
+        !chatDiscovery.active ||
+        chatDiscovery.phase !==
+            "wait_input"
+    ) {
+        return;
+    }
+
+    const composer =
+        getDiscoveryEditableTarget(
+            event.target
+        );
+
+    if (!composer) {
+        return;
+    }
+
+    const actual =
+        normalizeChatDiscoveryText(
+            getEditableText(
+                composer
+            )
+        );
+
+    if (
+        actual !==
+        normalizeChatDiscoveryText(
+            chatDiscovery.phrase
+        )
+    ) {
+        return;
+    }
+
+    chatDiscovery.composer =
+        composer;
+
+    chatDiscoveryProfile = {
+        ...chatDiscoveryProfile,
+        composerSelector:
+            getElementSelector(
+                composer
+            )
+    };
+
+    saveChatDiscoveryProfile();
+
+    setChatDiscoveryPhase(
+        "wait_send"
+    );
+}
+
+function handleChatDiscoveryClick(
+    event
+) {
+    if (
+        !chatDiscovery.active ||
+        chatDiscovery.phase !==
+            "wait_send"
+    ) {
+        return;
+    }
+
+    const button =
+        event.target?.closest?.(
+            'button, [role="button"], input[type="submit"]'
+        );
+
+    if (
+        !button ||
+        !isDiscoverySendButton(
+            button,
+            chatDiscovery.composer
+        )
+    ) {
+        return;
+    }
+
+    chatDiscovery.sendButton =
+        button;
+
+    chatDiscoveryProfile = {
+        ...chatDiscoveryProfile,
+        composerSelector:
+            getElementSelector(
+                chatDiscovery.composer
+            ),
+        sendButtonSelector:
+            getElementSelector(
+                button
+            )
+    };
+
+    saveChatDiscoveryProfile();
+
+    setChatDiscoveryPhase(
+        "wait_message"
+    );
+
+    window.setTimeout(
+        runChatDiscoveryScan,
+        50
+    );
+}
+
 
 function extractActionContainers(text) {
     if (typeof text !== "string" || !text.length) {
@@ -361,6 +959,16 @@ function editableScore(element) {
 }
 
 function findChatComposer() {
+    const learned =
+        findChatDiscoveryElement(
+            chatDiscoveryProfile
+                .composerSelector
+        );
+
+    if (learned) {
+        return learned;
+    }
+
     const candidates = [
         ...document.querySelectorAll(
             '[contenteditable="true"], textarea, input[type="text"], [role="textbox"]'
@@ -442,6 +1050,16 @@ function setComposerText(element, text) {
 }
 
 function findChatSubmitButton(composer) {
+    const learned =
+        findChatDiscoveryElement(
+            chatDiscoveryProfile
+                .sendButtonSelector
+        );
+
+    if (learned) {
+        return learned;
+    }
+
     const directSelectors = [
         'button[data-testid="send-button"]',
         'button[aria-label*="Send"]',
@@ -2263,6 +2881,44 @@ function inspectDocument() {
     );
 }
 
+document.addEventListener(
+    "input",
+    handleChatDiscoveryInput,
+    true
+);
+
+document.addEventListener(
+    "paste",
+    () => {
+        window.setTimeout(
+            () => {
+                if (
+                    chatDiscovery.active &&
+                    chatDiscovery.phase ===
+                        "wait_input"
+                ) {
+                    const composer =
+                        findChatComposer();
+
+                    if (composer) {
+                        handleChatDiscoveryInput({
+                            target: composer
+                        });
+                    }
+                }
+            },
+            0
+        );
+    },
+    true
+);
+
+document.addEventListener(
+    "click",
+    handleChatDiscoveryClick,
+    true
+);
+
 inspectDocument();
 
 let inspectTimer = null;
@@ -2289,6 +2945,14 @@ const observer = new MutationObserver(
                 scheduleInspectDocument();
                 break;
             }
+        }
+
+        if (
+            chatDiscovery.active &&
+            chatDiscovery.phase ===
+                "wait_message"
+        ) {
+            runChatDiscoveryScan();
         }
     }
 );
