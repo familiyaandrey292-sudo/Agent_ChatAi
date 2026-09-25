@@ -154,10 +154,10 @@ class TestBrowserDiscoveryStatic(unittest.TestCase):
 
     def test_content_captures_generic_send_control_from_event_path(self):
         for marker in (
-            "interactiveCandidates",
-            "getComputedStyle",
+            "getTrustedUserActionTarget",
+            "event?.isTrusted !== true",
             '"pointerup"',
-            "event?.composedPath?.()",
+            "event.composedPath?.()",
         ):
             self.assertIn(marker, self.content_js)
 
