@@ -1104,3 +1104,14 @@ Local validation after the latest static-test corrections is fully green:
 No runtime changes were required for the last two failures; both were brittle static-test markers.
 
 Next stage: real Brave browser verification of universal discovery, then the true AI-generated `AGX1:C` end-to-end test.
+
+### Real browser discovery checkpoint — 2026-09-25
+
+Universal Browser Discovery was manually verified in Brave on three real AI chats:
+- **DeepSeek:** reached `Кнопка найдена`
+- **Claude:** reached `Готово`
+- **Qwen:** reached `Готово`
+
+This confirms the action-driven discovery path is functioning across these sites without adding site-specific send-button selectors for the discovery mechanism.
+
+Next stage: perform the true AI-generated `AGX1:C` E2E. The test AI chat must generate the command into the rendered chat; do not manually paste the `AGX1:C` container. Then verify Bridge execution, signed `AGX1:R` insertion, automatic result submission, and loop/reprocessing protection.
