@@ -904,6 +904,26 @@ Commits:
 - `833c8566d9cfe2685334aca06479618a7ffd6733` — discovery trace static tests
 
 Required next step: sync locally, run full tests + Doctor, then perform one discovery run and copy the diagnostic JSON from the popup for analysis.
+### Discovery result-history correction — 2026-09-25
+
+The Claude discovery trace exposed a false-negative in result detection: the expected product could already exist in older chat history, so the previous global page-text guard kept rejecting every scan after the new answer appeared.
+
+The algorithm is corrected to snapshot the **specific matching DOM elements present before the user send action** and, after sending, accept a matching element only when it is not one of those pre-send elements.
+
+This preserves the intended semantics:
+- the Bridge computes X×Y
+- the answer is learned from a newly appearing/changed DOM target
+- an identical number elsewhere in chat history does not block discovery
+- no site-specific answer selector is added
+
+A duplicate stale code fragment from the first patch was also removed.
+
+Commits:
+- `01c0b36bf325709693c34c2eea0330dd4b1ba85d` — result baseline/search correction
+- `36a7543901cfad40d4c06401daf3a5bca905baa5` — regression test
+
+Local full suite + Doctor must be rerun before the next browser verification.
+
 ### Real browser discovery verification — 2026-09-25
 
 User performed real browser discovery verification after the diagnostic instrumentation.
