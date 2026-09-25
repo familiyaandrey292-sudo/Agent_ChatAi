@@ -569,7 +569,7 @@ Commit `732c7e81feda2307b6e5b78c6ef56bd75fcdf3fc` added Browser Bridge result au
 - guard against reprocessing Bridge-generated text
 - verification that the composer still contains the exact RESULT before sending
 
-This code has been syntax-checked and the full Python suite still passes after the change.
+The earlier auto-submit hardening was syntax-checked and the full Python suite passed before the universal discovery changes. The universal discovery changes below still require local browser/test verification.
 
 ### Universal chat discovery mode
 
