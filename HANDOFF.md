@@ -428,7 +428,7 @@ Full Python test suite:
 
 Last known full run:
 
-`Ran 89 tests in 7.732s`
+`Ran 90 tests in 7.732s`
 
 `OK`
 
@@ -633,7 +633,7 @@ Commit `87b3b395de297c0520b76fd154e9463a3c85ea68` improves discovery of the user
 
 After this fix the local suite was run again:
 
-- **89 tests, OK**
+- **90 tests, OK**
 - Browser discovery static tests included
 - No backend changes
 
@@ -666,11 +666,25 @@ Latest related commits:
 
 Current GitHub HEAD is later than the above intermediate commits; local `git pull --ff-only` was already confirmed up to date before the latest test run.
 
+### Latest Doctor verification after discovery robustness fix
+
+After commit `7ec085181546991ebc72fc182ab4ac484df36daf` and the new discovery test, local verification returned:
+
+- **90 tests, OK**
+- **DOCTOR: PASS**
+- JavaScript syntax: PASS
+- Python compilation: PASS
+- Gateway health: PASS
+- Browser Auth: paired/enabled
+- RESULT signing key: present
+- Replay database: present
+- Audit JSONL: valid
+
 ## 20. Current project point — START HERE
 
 Backend/protocol/security are already in a verified state:
 
-**89/89 tests + DOCTOR: PASS**
+**90/90 tests + DOCTOR: PASS**
 
 The most important already-proven path is:
 
