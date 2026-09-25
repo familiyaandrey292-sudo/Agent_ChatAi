@@ -806,6 +806,22 @@ No runtime behavior was changed by this commit.
 
 The next step is to rerun the full suite, then Doctor.
 
+### Latest discovery event-capture hardening — 2026-09-25
+
+A second real Brave discovery attempt still remained at `Поле найдено`, so the trusted user-action handler was hardened further without introducing button-state inspection.
+
+Changes:
+- DOM event targets are recognized by `nodeType === 1` instead of relying on `instanceof Element`, making event-path handling safer across DOM realms/shadow-DOM contexts.
+- Discovery now listens to the actual user `pointerdown`, `pointerup`, and `click` events.
+- The send target is still selected only from a trusted user event's `composedPath()`.
+- No enabled/disabled/visible/clickable-state inspection was added.
+
+Commits:
+- `a0eb1e8cc9fb28bc941a13a56977b34471929932` — runtime event-capture hardening
+- `a4031624f9e9cb0a3fc51414949dd8ba302d6233` — static test update
+
+Local full-suite + Doctor verification is required after syncing this checkpoint.
+
 ### Verification after send-capture correction — 2026-09-25
 
 Local verification after syncing commits `788b3962edc6b3ca5f1f704547f835bb0fa9643a` and `07606b5875231224cea8387c8391e7f0ba2ddbe6`:
