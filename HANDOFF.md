@@ -428,7 +428,7 @@ Full Python test suite:
 
 Last known full run:
 
-`Ran 92 tests in 7.732s`
+`Ran 95 tests in 7.732s`
 
 `OK`
 
@@ -648,7 +648,7 @@ Commit `87b3b395de297c0520b76fd154e9463a3c85ea68` improves discovery of the user
 
 After this fix the local suite was run again:
 
-- **92 tests, OK**
+- **95 tests, OK**
 - Browser discovery static tests included
 - No backend changes
 
@@ -746,11 +746,21 @@ Relevant commits:
 
 **This new result-based algorithm has not yet been browser-verified.**
 
+### Latest result-based discovery test checkpoint
+
+After the correction to identify the AI answer field by the Bridge-computed product X×Y:
+
+- local Git pull: up to date
+- **95 tests, OK**
+- result-based discovery tests pass
+- browser-side behavior still requires real Claude verification
+- next required runtime check: Doctor
+
 ## 20. Current project point — START HERE
 
 Backend/protocol/security are already in a verified state:
 
-**92/92 tests + DOCTOR: PASS**
+**95/95 tests + DOCTOR: PASS**
 
 The most important already-proven path is:
 
