@@ -614,6 +614,19 @@ This is intentionally site-agnostic: it learns from the real DOM interaction rat
 
 
 
+### Latest discovery robustness fix
+
+Commit `7ec085181546991ebc72fc182ab4ac484df36daf` hardens universal discovery for chat UIs with dynamic DOM/shadow-DOM behavior:
+
+- event target resolution now checks `event.composedPath()`
+- discovery can poll visible editable controls while waiting for the test phrase
+- discovery can verify the sent phrase from `document.body.innerText` before requiring a specific message element
+- the learned composer/send selectors remain preferred for subsequent operation
+
+A new static test covers the dynamic-DOM fallback markers.
+
+The next verification remains the same: reload the extension in Brave, run discovery on Claude, and check that the state reaches `Готово`.
+
 ### Latest browser-discovery fix
 
 Commit `87b3b395de297c0520b76fd154e9463a3c85ea68` improves discovery of the user's sent test phrase. The previous implementation required the entire parent DOM block to equal the phrase, which can fail in real chat UIs because the message container may include metadata or child nodes. The new implementation searches visible DOM elements for an exact normalized text match and chooses the most specific candidate.
