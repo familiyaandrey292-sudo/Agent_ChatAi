@@ -27,10 +27,17 @@ class TestBrowserDiscoveryStatic(unittest.TestCase):
             'id="discoveryPhrase"',
             'id="copyDiscovery"',
             'id="discoveryState"',
-            "Покой",
-            "Слушает",
         ):
             self.assertIn(marker, self.popup_html)
+
+        self.assertIn(
+            "Покой",
+            self.popup_html
+        )
+        self.assertIn(
+            "Слушает",
+            self.popup_js
+        )
 
     def test_popup_generates_required_phrase(self):
         self.assertIn(
