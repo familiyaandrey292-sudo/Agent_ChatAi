@@ -98,6 +98,109 @@
             white-space: pre-wrap;
             font-size: 12px;
         }
+
+        .discovery {
+            margin: 0 0 16px;
+            padding: 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 10px;
+        }
+
+        .discovery-title {
+            margin: 0 0 8px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .discovery-instruction {
+            margin: 0 0 10px;
+            font-size: 12px;
+            line-height: 1.45;
+        }
+
+        .discovery-copy-row {
+            display: flex;
+            gap: 6px;
+            align-items: stretch;
+        }
+
+        #discoveryPhrase {
+            flex: 1 1 auto;
+            box-sizing: border-box;
+            padding: 8px;
+            margin: 0;
+            font-size: 12px;
+        }
+
+        #copyDiscovery {
+            width: auto;
+            flex: 0 0 auto;
+            padding: 8px 10px;
+            white-space: nowrap;
+        }
+
+        .discovery-control {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        #discoveryToggle {
+            width: 34px;
+            height: 34px;
+            padding: 0;
+            border: 0;
+            border-radius: 50%;
+            background: #d1d5db;
+            display: grid;
+            place-items: center;
+        }
+
+        #discoveryToggle:hover:not(:disabled) {
+            filter: brightness(.96);
+        }
+
+        .discovery-dot {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #6b7280;
+            box-shadow: 0 0 0 0 rgba(107,114,128,.25);
+        }
+
+        #discoveryToggle[data-listening="true"] {
+            background: #dcfce7;
+        }
+
+        #discoveryToggle[data-listening="true"] .discovery-dot {
+            background: #16a34a;
+            animation: discovery-pulse 1.4s ease-out infinite;
+        }
+
+        @keyframes discovery-pulse {
+            0% {
+                box-shadow: 0 0 0 0 rgba(22,163,74,.35);
+            }
+            70% {
+                box-shadow: 0 0 0 8px rgba(22,163,74,0);
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(22,163,74,0);
+            }
+        }
+
+        .discovery-state {
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .discovery-help {
+            margin-top: 6px;
+            font-size: 11px;
+            color: #6b7280;
+            line-height: 1.35;
+        }
     </style>
 </head>
 <body>
@@ -120,6 +223,62 @@
             
         </div>
     </div>
+
+    <section class="discovery">
+        <h2 class="discovery-title">
+            Найти поле чата и кнопку отправки
+        </h2>
+
+        <p class="discovery-instruction">
+            Нажми на кнопку и вставь в поле чата:
+        </p>
+
+        <div class="discovery-copy-row">
+            <input
+                id="discoveryPhrase"
+                type="text"
+                readonly
+                spellcheck="false"
+            >
+
+            <button
+                id="copyDiscovery"
+                type="button"
+                title="Скопировать фразу"
+            >
+                Копировать
+            </button>
+        </div>
+
+        <div class="discovery-control">
+            <button
+                id="discoveryToggle"
+                type="button"
+                aria-pressed="false"
+                data-listening="false"
+                title="Начать или остановить поиск элементов чата"
+            >
+                <span
+                    class="discovery-dot"
+                    aria-hidden="true"
+                ></span>
+            </button>
+
+            <span
+                id="discoveryState"
+                class="discovery-state"
+            >
+                Покой
+            </span>
+        </div>
+
+        <div
+            id="discoveryHelp"
+            class="discovery-help"
+        >
+            После нажатия кнопки Bridge сам определит поле, кнопку отправки и появившееся сообщение.
+        </div>
+    </section>
 
     <label for="code">
         Gateway pairing code
