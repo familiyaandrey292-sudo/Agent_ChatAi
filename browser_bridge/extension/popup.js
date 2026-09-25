@@ -27,6 +27,11 @@ const discoveryState =
 const discoveryHelp =
     document.getElementById("discoveryHelp");
 
+const copyDiscoveryDiagnostics =
+    document.getElementById(
+        "copyDiscoveryDiagnostics"
+    );
+
 let currentDiscoveryPhrase = "";
 let currentDiscoveryResult = "";
 
@@ -182,6 +187,70 @@ async function copyDiscoveryPhrase() {
         if (discoveryHelp) {
             discoveryHelp.textContent =
                 "Не удалось скопировать: " +
+                error.message;
+        }
+    }
+}
+
+async function copyDiscoveryDiagnosticsText() {
+    try {
+        const tab = await getActiveTab();
+
+        if (!tab?.id) {
+            throw new Error(
+                "Активная вкладка не найдена."
+            );
+        }
+
+        const response =
+            await chrome.tabs.sendMessage(
+                tab.id,
+                {
+                    type:
+                        "AGX_CHAT_DISCOVERY_STATE"
+                }
+            );
+
+        const diagnostics = {
+            capturedAt:
+                new Date().toISOString(),
+            activeTab: {
+                id: tab.id,
+                title: tab.title || "",
+                url: tab.url || ""
+            },
+            discovery: response || null
+        };
+
+        const output =
+            JSON.stringify(
+                diagnostics,
+                null,
+                2
+            );
+
+        if (
+            !navigator.clipboard ||
+            typeof navigator.clipboard.writeText !==
+                "function"
+        ) {
+            throw new Error(
+                "Clipboard API недоступен в popup."
+            );
+        }
+
+        await navigator.clipboard.writeText(
+            output
+        );
+
+        if (discoveryHelp) {
+            discoveryHelp.textContent =
+                "Диагностика скопирована в буфер обмена.";
+        }
+    } catch (error) {
+        if (discoveryHelp) {
+            discoveryHelp.textContent =
+                "Не удалось скопировать диагностику: " +
                 error.message;
         }
     }
@@ -439,6 +508,13 @@ copyDiscovery?.addEventListener(
     "click",
     () => {
         copyDiscoveryPhrase();
+    }
+);
+
+copyDiscoveryDiagnostics?.addEventListener(
+    "click",
+    () => {
+        copyDiscoveryDiagnosticsText();
     }
 );
 
