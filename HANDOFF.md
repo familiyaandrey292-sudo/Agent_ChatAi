@@ -791,6 +791,16 @@ Relevant commits:
 
 Browser verification is still pending.
 
+### Latest test correction for action-driven discovery
+
+The new discovery implementation intentionally removed the old `interactiveCandidates` heuristic. One static test still asserted that obsolete implementation detail and caused a false failure at 98 tests.
+
+Commit `410eab51a67f96ee05ecd2f495e5ae2263a977f5` updates that test to assert the actual design invariant instead: trusted user event + `composedPath()` + `pointerup`.
+
+No runtime behavior was changed by this commit.
+
+The next step is to rerun the full suite, then Doctor.
+
 ## 20. Current project point — START HERE
 
 Backend/protocol/security are already in a verified state:
