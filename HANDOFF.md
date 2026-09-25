@@ -720,6 +720,32 @@ Commit `633ccc971f92bf9675fd1f002443830ab6b693c1` changes the popup discovery st
 
 This is a diagnostic-only UI improvement; browser verification on Claude is still pending.
 
+### Latest discovery design correction: learn the answer field by the computed result
+
+The discovery algorithm was corrected after clarifying the intended test.
+
+The test phrase contains two generated seven-digit operands X and Y. The Bridge itself computes the expected product using `BigInt(X) * BigInt(Y)`. After the user sends the phrase to the AI, discovery does **not** search for the original phrase again.
+
+Instead the sequence is:
+
+1. capture the real composer while the phrase is inserted
+2. capture the real send button when the user clicks it
+3. remember the page text immediately before the click
+4. wait for the AI's response
+5. find a visible DOM element containing the expected mathematical result, tolerating spaces/commas/other numeric separators
+6. require that the result was not already present before the send click
+7. save that response element as the learned answer/message field
+
+This matches the intended universal discovery model: `input field + send button + answer field`, learned from a real user interaction and identified by the known mathematical result rather than by ChatGPT/Claude-specific selectors.
+
+Relevant commits:
+
+- `a2b26781987927526264054072f0b715e61bbbbd` — popup generates and passes the expected result
+- `e42e5b982210bdd100150a063ac750571d3a5ffa` — content script learns the response field by computed result
+- `a06ca0a2baaec50a8f2eebfa3268e327338c7d0f` — static tests for result-based discovery
+
+**This new result-based algorithm has not yet been browser-verified.**
+
 ## 20. Current project point — START HERE
 
 Backend/protocol/security are already in a verified state:
