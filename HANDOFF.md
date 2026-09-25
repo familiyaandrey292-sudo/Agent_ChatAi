@@ -614,6 +614,18 @@ This is intentionally site-agnostic: it learns from the real DOM interaction rat
 
 
 
+### Latest browser-discovery fix
+
+Commit `87b3b395de297c0520b76fd154e9463a3c85ea68` improves discovery of the user's sent test phrase. The previous implementation required the entire parent DOM block to equal the phrase, which can fail in real chat UIs because the message container may include metadata or child nodes. The new implementation searches visible DOM elements for an exact normalized text match and chooses the most specific candidate.
+
+After this fix the local suite was run again:
+
+- **89 tests, OK**
+- Browser discovery static tests included
+- No backend changes
+
+The browser-side behavior still needs real Brave verification.
+
 ### Latest verified backend/runtime checkpoint
 
 After the universal discovery implementation:
