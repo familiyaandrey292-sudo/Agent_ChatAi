@@ -163,13 +163,32 @@ class TestBrowserDiscoveryStatic(unittest.TestCase):
 
 
     def test_discovery_uses_trusted_user_action(self):
+        start = self.content_js.index(
+            "function getTrustedUserActionTarget"
+        )
+        end = self.content_js.index(
+            "function findDiscoveryRenderedText",
+            start
+        )
+        helper = self.content_js[start:end]
+
         for marker in (
-            "getTrustedUserActionTarget",
             "event?.isTrusted !== true",
             "event.composedPath?.()",
+            "button, [role=\"button\"], input[type=\"submit\"]",
             'typeof item.click === "function"',
         ):
-            self.assertIn(marker, self.content_js)
+            self.assertIn(marker, helper)
+
+        self.assertNotIn(
+            "composer.contains(item)",
+            helper
+        )
+        self.assertIn(
+            "item === composer",
+            helper
+        )
+
 
     def test_discovery_does_not_filter_send_control_state(self):
         start = self.content_js.index(
