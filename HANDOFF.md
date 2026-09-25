@@ -709,6 +709,17 @@ After the dynamic DOM / Shadow DOM discovery fixes:
 
 Browser verification on Claude is the next step.
 
+### Latest discovery diagnostic UI
+
+Commit `633ccc971f92bf9675fd1f002443830ab6b693c1` changes the popup discovery status so `Слушает` is no longer ambiguous:
+
+- `Слушает` = still waiting to capture the real composer
+- `Поле найдено` = composer captured; waiting for send control
+- `Кнопка найдена` = send control captured; waiting for rendered message
+- `Готово` = all three targets learned
+
+This is a diagnostic-only UI improvement; browser verification on Claude is still pending.
+
 ## 20. Current project point — START HERE
 
 Backend/protocol/security are already in a verified state:
