@@ -8,7 +8,8 @@ chrome.runtime.onMessage.addListener(
         ) {
             sendResponse(
                 startChatDiscovery(
-                    message.phrase
+                    message.phrase,
+                    message.expectedResult
                 )
             );
             return false;
@@ -87,6 +88,8 @@ const chatDiscovery = {
     active: false,
     phase: "idle",
     phrase: "",
+    expectedResult: "",
+    preSendPageText: "",
     composer: null,
     sendButton: null,
     messageElement: null
@@ -497,6 +500,126 @@ function setChatDiscoveryPhase(
         phase;
 }
 
+function normalizeDiscoveryNumber(value) {
+    return String(value || "")
+        .replace(/[^0-9]/g, "");
+}
+
+function collectDiscoveryElements() {
+    const found = [];
+
+    const visit = (scope) => {
+        if (!scope?.querySelectorAll) {
+            return;
+        }
+
+        for (const element of scope.querySelectorAll("*")) {
+            found.push(element);
+
+            if (element.shadowRoot) {
+                visit(element.shadowRoot);
+            }
+        }
+    };
+
+    visit(document);
+
+    return [
+        ...new Set(found)
+    ];
+}
+
+function findDiscoveryResultElement(
+    expectedResult
+) {
+    const wanted =
+        normalizeDiscoveryNumber(
+            expectedResult
+        );
+
+    if (!wanted) {
+        return null;
+    }
+
+    const candidates = [];
+
+    for (const element of collectDiscoveryElements()) {
+        if (
+            element === chatDiscovery.composer ||
+            element.closest?.(
+                '[data-agent-chatai-bridge-panel="1"]'
+            )
+        ) {
+            continue;
+        }
+
+        const style =
+            window.getComputedStyle(element);
+
+        const rect =
+            element.getBoundingClientRect();
+
+        if (
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            rect.width <= 0 ||
+            rect.height <= 0
+        ) {
+            continue;
+        }
+
+        const text =
+            element.innerText ||
+            element.textContent ||
+            "";
+
+        const numberCandidates =
+            String(text).match(
+                /\d[\d\s,._-]{5,}\d|\d{6,}/g
+            ) || [];
+
+        if (
+            numberCandidates.some(
+                (value) =>
+                    normalizeDiscoveryNumber(
+                        value
+                    ) === wanted
+            )
+        ) {
+            candidates.push(element);
+        }
+    }
+
+    candidates.sort(
+        (a, b) => {
+            const aLength =
+                (
+                    a.innerText ||
+                    a.textContent ||
+                    ""
+                ).length;
+
+            const bLength =
+                (
+                    b.innerText ||
+                    b.textContent ||
+                    ""
+                ).length;
+
+            if (aLength !== bLength) {
+                return aLength - bLength;
+            }
+
+            return (
+                a.getElementsByTagName("*").length -
+                b.getElementsByTagName("*").length
+            );
+        }
+    );
+
+    return candidates[0] || null;
+}
+
 function runChatDiscoveryScan() {
     if (
         !chatDiscovery.active ||
@@ -506,34 +629,39 @@ function runChatDiscoveryScan() {
         return false;
     }
 
-    const pageText =
-        normalizeChatDiscoveryText(
-            document.body?.innerText || ""
+    const expected =
+        normalizeDiscoveryNumber(
+            chatDiscovery.expectedResult
         );
 
-    const phrase =
-        normalizeChatDiscoveryText(
-            chatDiscovery.phrase
+    const before =
+        normalizeDiscoveryNumber(
+            chatDiscovery.preSendPageText
         );
+
+    if (!expected) {
+        return false;
+    }
 
     if (
-        pageText !== phrase &&
-        !pageText.includes(phrase)
+        before.indexOf(expected) >= 0
     ) {
         return false;
     }
 
     const element =
-        findDiscoveryRenderedText(
-            chatDiscovery.phrase
+        findDiscoveryResultElement(
+            chatDiscovery.expectedResult
         );
 
+    if (!element) {
+        return false;
+    }
+
     chatDiscovery.messageElement =
-        element
-            ? discoverChatMessageContainer(
-                element
-            )
-            : null;
+        discoverChatMessageContainer(
+            element
+        );
 
     chatDiscoveryProfile = {
         ...chatDiscoveryProfile,
@@ -551,6 +679,8 @@ function runChatDiscoveryScan() {
             ),
         phrase:
             chatDiscovery.phrase,
+        expectedResult:
+            chatDiscovery.expectedResult,
         learnedAt:
             new Date().toISOString()
     };
@@ -571,7 +701,8 @@ function runChatDiscoveryScan() {
 }
 
 function startChatDiscovery(
-    phrase
+    phrase,
+    expectedResult
 ) {
     if (
         typeof phrase !== "string" ||
@@ -583,6 +714,18 @@ function startChatDiscovery(
         };
     }
 
+    if (
+        typeof expectedResult !== "string" ||
+        !/^\d+$/.test(
+            expectedResult.trim()
+        )
+    ) {
+        return {
+            ok: false,
+            error: "missing_expected_result"
+        };
+    }
+
     chatDiscovery.active = true;
     scheduleDiscoveryPoll();
 
@@ -590,6 +733,9 @@ function startChatDiscovery(
         normalizeChatDiscoveryText(
             phrase
         );
+    chatDiscovery.expectedResult =
+        expectedResult.trim();
+    chatDiscovery.preSendPageText = "";
     chatDiscovery.composer = null;
     chatDiscovery.sendButton = null;
     chatDiscovery.messageElement = null;
@@ -618,6 +764,8 @@ function stopChatDiscovery() {
     chatDiscovery.sendButton = null;
     chatDiscovery.messageElement = null;
     chatDiscovery.phrase = "";
+    chatDiscovery.expectedResult = "";
+    chatDiscovery.preSendPageText = "";
 
     setChatDiscoveryPhase(
         "idle"
@@ -632,6 +780,8 @@ function getChatDiscoveryState() {
         active: chatDiscovery.active,
         phase: chatDiscovery.phase,
         phrase: chatDiscovery.phrase,
+        expectedResult:
+            chatDiscovery.expectedResult,
         learned:
             Boolean(
                 chatDiscoveryProfile
@@ -697,7 +847,7 @@ function handleChatDiscoveryInput(
     );
 }
 
-function collectDiscoveryEditables(root = document) {
+function collectDiscoveryEditables() {
     const selector =
         '[contenteditable="true"], textarea, input[type="text"], [role="textbox"]';
 
@@ -712,10 +862,6 @@ function collectDiscoveryEditables(root = document) {
             if (isVisibleEditable(element)) {
                 found.push(element);
             }
-
-            if (element.shadowRoot) {
-                visit(element.shadowRoot);
-            }
         }
 
         for (const element of scope.querySelectorAll("*")) {
@@ -725,7 +871,7 @@ function collectDiscoveryEditables(root = document) {
         }
     };
 
-    visit(root);
+    visit(document);
 
     return [
         ...new Set(found)
@@ -804,6 +950,10 @@ function handleChatDiscoveryClick(
 
     chatDiscovery.sendButton =
         button;
+    chatDiscovery.preSendPageText =
+        normalizeChatDiscoveryText(
+            document.body?.innerText || ""
+        );
 
     chatDiscoveryProfile = {
         ...chatDiscoveryProfile,
