@@ -310,6 +310,14 @@ function getDiscoveryEditableTarget(
     ) || null;
 }
 
+function isDiscoveryElement(item) {
+    return Boolean(
+        item &&
+        item.nodeType === 1 &&
+        typeof item.matches === "function"
+    );
+}
+
 function getTrustedUserActionTarget(
     event,
     composer
@@ -328,7 +336,7 @@ function getTrustedUserActionTarget(
         '[contenteditable="true"], textarea, input[type="text"], [role="textbox"]';
 
     for (const item of path) {
-        if (!(item instanceof Element)) {
+        if (!isDiscoveryElement(item)) {
             continue;
         }
 
@@ -350,7 +358,7 @@ function getTrustedUserActionTarget(
     }
 
     for (const item of path) {
-        if (!(item instanceof Element)) {
+        if (!isDiscoveryElement(item)) {
             continue;
         }
 
@@ -369,11 +377,9 @@ function getTrustedUserActionTarget(
         }
     }
 
-    return (
-        event.target instanceof Element &&
+    return isDiscoveryElement(event.target) &&
         event.target !== composer &&
         !event.target.matches(editableSelector)
-    )
         ? event.target
         : null;
 }
@@ -3293,17 +3299,17 @@ document.addEventListener(
     true
 );
 
-document.addEventListener(
-    "click",
-    handleChatDiscoveryClick,
-    true
-);
-
-document.addEventListener(
+for (const eventName of [
+    "pointerdown",
     "pointerup",
-    handleChatDiscoveryClick,
-    true
-);
+    "click"
+]) {
+    document.addEventListener(
+        eventName,
+        handleChatDiscoveryClick,
+        true
+    );
+}
 
 inspectDocument();
 
