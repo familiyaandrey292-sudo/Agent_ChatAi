@@ -161,6 +161,35 @@ class TestBrowserDiscoveryStatic(unittest.TestCase):
         ):
             self.assertIn(marker, self.content_js)
 
+
+    def test_discovery_uses_trusted_user_action(self):
+        for marker in (
+            "getTrustedUserActionTarget",
+            "event?.isTrusted !== true",
+            "event.composedPath?.()",
+            'typeof item.click === "function"',
+        ):
+            self.assertIn(marker, self.content_js)
+
+    def test_discovery_does_not_filter_send_control_state(self):
+        start = self.content_js.index(
+            "function handleChatDiscoveryClick"
+        )
+        end = self.content_js.index(
+            "function extractActionContainers",
+            start
+        )
+        handler = self.content_js[start:end]
+
+        self.assertNotIn(
+            "isDiscoverySendButton",
+            handler
+        )
+        self.assertIn(
+            "event",
+            handler
+        )
+
     def test_result_submission_prefers_learned_send_button(self):
         pattern = re.compile(
             r"function\s+findChatSubmitButton\(composer\).*?"
