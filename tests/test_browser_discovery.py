@@ -270,7 +270,7 @@ class TestBrowserDiscoveryStatic(unittest.TestCase):
             "handleChatDiscoverySubmit",
             '"submit_event"',
             "event?.submitter",
-            '"submitter"',
+            "submitter:",
             '"pointerType"',
             "event?.key",
         ):
