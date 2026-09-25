@@ -3499,6 +3499,43 @@ function inspectDocument() {
     );
 }
 
+function traceDiscoveryUserEvent(event) {
+    discoveryTrace(
+        "window_user_event",
+        {
+            type:
+                event?.type || "",
+            isTrusted:
+                event?.isTrusted === true,
+            target:
+                describeDiscoveryElement(
+                    event?.target
+                ),
+            path:
+                discoveryTraceEventPath(
+                    event
+                )
+        }
+    );
+}
+
+for (const eventName of [
+    "pointerdown",
+    "pointerup",
+    "click",
+    "mousedown",
+    "mouseup",
+    "touchstart",
+    "touchend",
+    "keydown"
+]) {
+    window.addEventListener(
+        eventName,
+        traceDiscoveryUserEvent,
+        true
+    );
+}
+
 document.addEventListener(
     "input",
     handleChatDiscoveryInput,
