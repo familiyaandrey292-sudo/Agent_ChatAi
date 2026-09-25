@@ -553,7 +553,66 @@ User preferences:
 
 ---
 
-## 19. Current project point — START HERE
+## 19. Browser Bridge auto-submit + universal chat discovery
+
+The previous real Brave E2E proved:
+
+**rendered AGX1:C → Bridge → Gateway → execution → signed AGX1:R → Bridge → composer**
+
+The observed problem was that the RESULT was inserted into the composer but was not reliably submitted.
+
+Commit `732c7e81feda2307b6e5b78c6ef56bd75fcdf3fc` added Browser Bridge result auto-submit hardening:
+
+- direct send-button selectors before broad heuristics
+- bounded retry while the send control becomes ready
+- Bridge-generated composer marker
+- guard against reprocessing Bridge-generated text
+- verification that the composer still contains the exact RESULT before sending
+
+This code has been syntax-checked and the full Python suite still passes after the change.
+
+### Universal chat discovery mode
+
+The requested design is now implemented in three pieces:
+
+- `browser_bridge/extension/content.js`
+- `browser_bridge/extension/popup.html`
+- `browser_bridge/extension/popup.js`
+- `tests/test_browser_discovery.py`
+
+The popup now contains a discovery card with:
+
+- generated phrase: `ИИ сколько будет <7-digit X> умножить на <7-digit Y>`
+- `Копировать` button
+- round listening control shown as a simple circle
+- states `Покой` and `Слушает`
+
+Discovery protocol messages:
+
+- `AGX_CHAT_DISCOVERY_START`
+- `AGX_CHAT_DISCOVERY_STOP`
+- `AGX_CHAT_DISCOVERY_STATE`
+
+Discovery sequence:
+
+1. Popup generates a fresh phrase with two seven-digit numbers.
+2. User presses the circle button; state becomes `Слушает`.
+3. User copies/inserts the phrase into the real chat composer.
+4. Content script observes the actual input event and records the real composer element.
+5. User presses the real send button.
+6. Content script records the actual clicked button associated with that composer.
+7. MutationObserver waits for the same phrase to appear as rendered chat text outside the composer.
+8. The message element is recorded.
+9. Selectors/fingerprints for composer, send button, and message are saved in page-origin `localStorage` under `agentChataiChatDiscovery`.
+10. Discovery state becomes `complete` and `agentChataiChatDiscoveryReady=1`.
+
+Normal `findChatComposer()` and `findChatSubmitButton()` now prefer learned selectors before generic heuristics.
+
+This is intentionally site-agnostic: it learns from the real DOM interaction rather than hard-coding ChatGPT/Qwen/etc. selectors.
+
+**Important:** the universal discovery implementation is currently **code-complete but not yet browser-verified** in Brave after the latest changes.
+
+## 20. Current project point — START HERE
 
 Backend/protocol/security are already in a verified state:
 
@@ -583,7 +642,24 @@ After that fix:
 
 ---
 
-## 20. Instructions for the next AI
+## 21. Next verification stage
+
+Before changing backend code, perform the browser-side verification:
+
+1. `git pull` locally so the new commits are present.
+2. Run the full test suite.
+3. Run Doctor.
+4. Reload the unpacked extension in Brave and reload the ChatGPT tab.
+5. Click the extension icon and verify the new discovery card is visible.
+6. Click the circle so it shows `Слушает`.
+7. Click `Копировать` and paste the generated phrase into the ChatGPT composer.
+8. Press the chat site's real Send button.
+9. Verify the state reaches `Готово` and that composer/send/message selectors were learned.
+10. Then send a real AI-generated `AGX1:C` and verify the full chain including automatic RESULT submission.
+
+For the final AI-generated-command test, the user should ask a test AI chat to write the `AGX1:C`; do not manually paste the command yourself.
+
+## 22. Instructions for the next AI
 
 1. Read this file first.
 2. Continue from section 19.
