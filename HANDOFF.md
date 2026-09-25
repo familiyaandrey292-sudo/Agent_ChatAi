@@ -1068,3 +1068,16 @@ Fix commit:
 - `1820ea3e9a27b346c9c07e62b95fd735115141f4`
 
 Next step: local `git pull --ff-only`, then rerun the full test suite + Doctor. Do not proceed to new browser changes until this validation is green.
+
+
+### Follow-up static-test correction — 2026-09-25
+
+The next 103-test run again had one failure in `test_discovery_traces_submit_actions`.
+The remaining brittle assertion expected the literal quoted key `"pointerType"`, while `content.js` uses the object-property syntax `pointerType:`.
+
+Runtime code remains unchanged. The test marker was corrected to `pointerType:`.
+
+Fix commit:
+- `738cb0a72d16aa5b12291583858f13b3a7d249e9`
+
+Next step: sync locally and rerun the full suite + Doctor.
