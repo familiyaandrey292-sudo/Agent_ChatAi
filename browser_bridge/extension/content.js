@@ -43,6 +43,9 @@ let lastContainer = null;
 let confirmationToken = null;
 let confirmationBar = null;
 let lastPublishedResult = null;
+let bridgeGeneratedComposer = null;
+const BRIDGE_SEND_RETRY_MS = 100;
+const BRIDGE_SEND_MAX_ATTEMPTS = 25;
 
 function extractActionContainers(text) {
     if (typeof text !== "string" || !text.length) {
@@ -439,6 +442,23 @@ function setComposerText(element, text) {
 }
 
 function findChatSubmitButton(composer) {
+    const directSelectors = [
+        'button[data-testid="send-button"]',
+        'button[aria-label*="Send"]',
+        'button[aria-label*="send"]',
+        'button[aria-label*="Отправ"]',
+        'button[title*="Send"]',
+        'button[title*="send"]'
+    ];
+
+    for (const selector of directSelectors) {
+        const direct = document.querySelector(selector);
+
+        if (direct && isVisibleEditable(direct)) {
+            return direct;
+        }
+    }
+
     const form = composer.closest("form");
 
     if (form) {
@@ -529,6 +549,140 @@ function submitChatComposer(composer) {
     return true;
 }
 
+function getComposerText(element) {
+    if (
+        element instanceof HTMLTextAreaElement ||
+        element instanceof HTMLInputElement
+    ) {
+        return element.value || "";
+    }
+
+    return element.innerText || element.textContent || "";
+}
+
+function markBridgeGeneratedComposer(composer, text) {
+    bridgeGeneratedComposer = {
+        composer,
+        text,
+        expiresAt: Date.now() + 10000
+    };
+
+    composer.dataset.agentChataiBridgeGenerated = "1";
+    document.documentElement.dataset.agentChataiBridgeGenerated = "1";
+}
+
+function clearBridgeGeneratedComposer(composer = null) {
+    if (
+        composer &&
+        composer.dataset
+    ) {
+        delete composer.dataset.agentChataiBridgeGenerated;
+    }
+
+    if (
+        !composer ||
+        bridgeGeneratedComposer?.composer === composer
+    ) {
+        bridgeGeneratedComposer = null;
+        delete document.documentElement.dataset.agentChataiBridgeGenerated;
+    }
+}
+
+function bridgeOwnsComposerText(composer, expectedText) {
+    const marker = bridgeGeneratedComposer;
+
+    if (
+        !marker ||
+        marker.composer !== composer ||
+        Date.now() > marker.expiresAt
+    ) {
+        return false;
+    }
+
+    return getComposerText(composer) === expectedText;
+}
+
+function submitPublishedResultWhenReady(
+    composer,
+    expectedText,
+    attempt = 0
+) {
+    if (
+        !bridgeOwnsComposerText(composer, expectedText)
+    ) {
+        document.documentElement.dataset.agentChataiChatOutput =
+            "send_guard_failed";
+        return false;
+    }
+
+    const currentComposer = findChatComposer();
+
+    if (!currentComposer) {
+        if (attempt < BRIDGE_SEND_MAX_ATTEMPTS) {
+            window.setTimeout(
+                () => submitPublishedResultWhenReady(
+                    composer,
+                    expectedText,
+                    attempt + 1
+                ),
+                BRIDGE_SEND_RETRY_MS
+            );
+            return false;
+        }
+
+        document.documentElement.dataset.agentChataiChatOutput =
+            "submit_failed";
+        clearBridgeGeneratedComposer(composer);
+        return false;
+    }
+
+    if (currentComposer !== composer) {
+        if (
+            getComposerText(currentComposer) === expectedText
+        ) {
+            composer = currentComposer;
+            markBridgeGeneratedComposer(
+                composer,
+                expectedText
+            );
+        } else {
+            document.documentElement.dataset.agentChataiChatOutput =
+                "composer_changed";
+            clearBridgeGeneratedComposer();
+            return false;
+        }
+    }
+
+    if (submitChatComposer(composer)) {
+        document.documentElement.dataset.agentChataiChatOutput =
+            "submitted";
+
+        window.setTimeout(
+            () => clearBridgeGeneratedComposer(composer),
+            500
+        );
+
+        return true;
+    }
+
+    if (attempt < BRIDGE_SEND_MAX_ATTEMPTS) {
+        window.setTimeout(
+            () => submitPublishedResultWhenReady(
+                composer,
+                expectedText,
+                attempt + 1
+            ),
+            BRIDGE_SEND_RETRY_MS
+        );
+        return false;
+    }
+
+    document.documentElement.dataset.agentChataiChatOutput =
+        "submit_failed";
+    clearBridgeGeneratedComposer(composer);
+    return false;
+}
+
 function publishResultToChat(resultContainer) {
     if (
         typeof resultContainer !== "string" ||
@@ -554,16 +708,25 @@ function publishResultToChat(resultContainer) {
             resultContainer
         );
 
+        markBridgeGeneratedComposer(
+            composer,
+            resultContainer
+        );
+
         document.documentElement.dataset.agentChataiChatOutput =
             "inserted";
 
         window.setTimeout(
-            () => submitChatComposer(composer),
-            50
+            () => submitPublishedResultWhenReady(
+                composer,
+                resultContainer
+            ),
+            BRIDGE_SEND_RETRY_MS
         );
 
         return true;
     } catch (error) {
+        clearBridgeGeneratedComposer(composer);
         document.documentElement.dataset.agentChataiChatOutput =
             "error";
 
@@ -815,6 +978,7 @@ function saveCommandPanelTheme(theme) {
 }
 function closeCommandPanel() {
     commandBridgeEnabled = false;
+    clearBridgeGeneratedComposer();
     if (typeof removeConfirmationBar === "function") {
         removeConfirmationBar();
     }
