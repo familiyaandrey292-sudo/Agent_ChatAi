@@ -904,6 +904,21 @@ Commits:
 - `833c8566d9cfe2685334aca06479618a7ffd6733` — discovery trace static tests
 
 Required next step: sync locally, run full tests + Doctor, then perform one discovery run and copy the diagnostic JSON from the popup for analysis.
+### Real browser discovery verification — 2026-09-25
+
+User performed real browser discovery verification after the diagnostic instrumentation.
+
+Observed results:
+- **Qwen: Готово** — composer, real send action, and answer/result field were all learned successfully.
+- **Claude: Кнопка найдена** — composer and real send action were learned successfully; the remaining phase is waiting for the computed AI answer field.
+
+This is the first confirmed cross-site runtime evidence that the action-driven discovery path can capture a real send action without relying on button state.
+
+The discovery algorithm remains:
+**real input → real user send action → Bridge-computed X×Y → answer field**
+
+Next browser verification target: complete Claude by allowing the AI response containing the expected product to appear and confirming transition to **Готово**. After that, proceed to the true AI-generated `AGX1:C` E2E.
+
 ## 20. Current project point — START HERE
 
 Backend/protocol/security are in a verified state, and the current local code checkpoint has passed the full validation suite:
