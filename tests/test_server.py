@@ -11,6 +11,7 @@ from gateway.pairing import PairingManager
 from gateway.signing import ResultSigner
 from gateway.server import create_server
 from pc_agent.agent import PCAgent
+from protocol.command import create_command, encode_command
 from protocol.MSGv1 import (
     create_action,
     decode_result,
@@ -384,6 +385,149 @@ class TestGatewayHTTP(unittest.TestCase):
         finally:
             server.shutdown()
             server.server_close()
+    def test_command_endpoint(self):
+        secret = new_hmac_secret()
+
+        gateway = Gateway(
+            allow_actions={"system.info"},
+        )
+
+        executor = GatewayExecutor(
+            gateway,
+            PCAgent(),
+            hmac_secret=secret,
+        )
+
+        signer = ResultSigner.load_or_create(
+            Path("tests") / "test_result_signing_key.pem"
+        )
+
+        server = create_server(
+            executor,
+            host="127.0.0.1",
+            port=0,
+            signer=signer,
+        )
+
+        thread = threading.Thread(
+            target=server.serve_forever,
+            daemon=True,
+        )
+        thread.start()
+
+        try:
+            host, port = server.server_address
+
+            command = create_command(
+                "system.info",
+                {},
+            )
+
+            body = json.dumps(
+                {
+                    "container": encode_command(command),
+                }
+            ).encode("utf-8")
+
+            request = Request(
+                f"http://{host}:{port}/v1/command",
+                data=body,
+                headers={
+                    "Content-Type": "application/json",
+                },
+                method="POST",
+            )
+
+            with urlopen(request, timeout=5) as response:
+                self.assertEqual(response.status, 200)
+                payload = json.loads(
+                    response.read().decode("utf-8")
+                )
+
+            self.assertEqual(payload["status"], "ok")
+            self.assertTrue(payload["container"].startswith("AGX1:R:"))
+            self.assertTrue(payload.get("signature"))
+
+            result = decode_result(
+                payload["container"],
+                secret,
+            )
+
+            self.assertEqual(result.status, "ok")
+            self.assertEqual(
+                result.result["system"],
+                "Windows",
+            )
+
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_command_endpoint_rejects_tampered_container(self):
+        secret = new_hmac_secret()
+
+        gateway = Gateway(
+            allow_actions={"system.info"},
+        )
+
+        executor = GatewayExecutor(
+            gateway,
+            PCAgent(),
+            hmac_secret=secret,
+        )
+
+        signer = ResultSigner.load_or_create(
+            Path("tests") / "test_result_signing_key.pem"
+        )
+
+        server = create_server(
+            executor,
+            host="127.0.0.1",
+            port=0,
+            signer=signer,
+        )
+
+        thread = threading.Thread(
+            target=server.serve_forever,
+            daemon=True,
+        )
+        thread.start()
+
+        try:
+            host, port = server.server_address
+
+            command = create_command(
+                "system.info",
+                {},
+            )
+
+            container = encode_command(command)
+            tampered = container[:-1] + (
+                "0" if container[-1] != "0" else "1"
+            )
+
+            body = json.dumps(
+                {
+                    "container": tampered,
+                }
+            ).encode("utf-8")
+
+            request = Request(
+                f"http://{host}:{port}/v1/command",
+                data=body,
+                headers={
+                    "Content-Type": "application/json",
+                },
+                method="POST",
+            )
+
+            with self.assertRaises(Exception):
+                urlopen(request, timeout=5)
+
+        finally:
+            server.shutdown()
+            server.server_close()
+
     def test_action_endpoint(self):
         secret = new_hmac_secret()
 
