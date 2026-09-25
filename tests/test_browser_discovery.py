@@ -97,6 +97,22 @@ class TestBrowserDiscoveryStatic(unittest.TestCase):
         ):
             self.assertIn(marker, self.content_js)
 
+
+    def test_content_captures_real_event_target(self):
+        for marker in (
+            'handleChatDiscoveryInput(event)',
+            '"paste"',
+            '"focusin"',
+        ):
+            self.assertIn(marker, self.content_js)
+
+    def test_content_supports_open_shadow_dom_discovery(self):
+        for marker in (
+            "collectDiscoveryEditables",
+            "element.shadowRoot",
+        ):
+            self.assertIn(marker, self.content_js)
+
     def test_result_submission_prefers_learned_send_button(self):
         pattern = re.compile(
             r"function\s+findChatSubmitButton\(composer\).*?"
