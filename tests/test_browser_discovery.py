@@ -238,6 +238,33 @@ class TestBrowserDiscoveryStatic(unittest.TestCase):
             self.popup_js
         )
 
+    def test_discovery_allows_existing_result_in_history(self):
+        start = self.content_js.index(
+            "function runChatDiscoveryScan"
+        )
+        end = self.content_js.index(
+            "function startChatDiscovery",
+            start
+        )
+        scan = self.content_js[start:end]
+
+        self.assertIn(
+            "preSendResultElements",
+            self.content_js
+        )
+        self.assertIn(
+            "candidates.find",
+            scan
+        )
+        self.assertIn(
+            "preSendResultElements.includes",
+            scan
+        )
+        self.assertNotIn(
+            "before.indexOf(expected)",
+            scan
+        )
+
     def test_discovery_traces_submit_actions(self):
         for marker in (
             "handleChatDiscoverySubmit",
