@@ -1297,7 +1297,7 @@ function finalizeDiscoverySendCandidate(
     chatDiscovery.pendingSendStartedAt = null;
 
     discoveryTrace(
-        "send_control_captured",
+        "send_control_captured",`r`n        "send_control_confirmed",
         {
             evidence,
             sendButton:
@@ -4044,6 +4044,8 @@ window.addEventListener(
     agentChataiBridgeShortcutHandler,
     true
 );
+
+
 
 
 
