@@ -133,6 +133,16 @@ User preferences:
 
 This rule is mandatory for future PowerShell diagnostic and test commands.
 
+### Special Buffer-drops marker
+
+**IMPORTANT: `GitHub Nikname Buffer-drops\\latest.txt` is a special marker.**
+
+If this exact string is received, it means:
+
+> Get and read `latest.txt` at `GitHub\\имя пользователя (на GitHub)\\Buffer-drops\\latest.txt`.
+
+`Nikname` in the marker is **literal text**. Do not replace, remove, or reinterpret it.
+
 ### Normal-size result
 
 When a PowerShell command produces a result that fits safely in the chat/Clipboard transfer:
@@ -148,21 +158,16 @@ When the result is too large to return directly:
 1. Do **not** put the huge result into the chat.
 2. Save the **complete original result** to:
 
-`C:\Proj\Agents\Agent_ChatAi\Buffer-drops\latest.txt`
+`C:\Proj\Agents\Buffer-drops\latest.txt`
 
-3. The local `Buffer-drops` directory must be a Git repository connected to:
-
-`https://github.com/familiyaandrey292-sudo/Buffer-drops.git`
-
+3. This directory is the local Git repository for the user's GitHub project **Buffer-drops**.
 4. Push `latest.txt` through normal local Git:
 
 `git add → git commit → git push`
 
 5. Only after **successful `git push`** copy this exact single line to Windows Clipboard:
 
-`GitHub Buffer-drops\latest.txt`
-
-**IMPORTANT: the required Clipboard marker is exactly `GitHub Buffer-drops\latest.txt`. Never use `GitHub Nickname Buffer-drops\latest.txt`, never substitute a nickname, and never use any other marker.**
+`GitHub Nikname Buffer-drops\\latest.txt`
 
 6. Do not put any error, diagnostic text, commit message, Git output, or other text in Clipboard after successful push.
 
@@ -170,37 +175,24 @@ When the result is too large to return directly:
 
 If `git add`, `git commit`, or `git push` fails:
 
-- **never** copy `GitHub Buffer-drops\latest.txt` to Clipboard;
+- **never** copy the marker to Clipboard;
 - keep the complete result in local `latest.txt`;
 - report the Git failure separately;
 - do not claim that the result is available on GitHub.
 
 ### Important distinction
 
-The large-result mechanism is **not** a manual GitHub API upload. It is a local PowerShell → local Git repository → normal git add/commit/push workflow.
+The large-result mechanism is **not** a manual GitHub API upload. It is:
 
-A pasted Clipboard value of exactly:
+**local PowerShell → local Buffer-drops Git repository → git add/commit/push → exact Clipboard marker**
 
-`GitHub Buffer-drops\latest.txt`
-
-means that the complete result was too large for direct transfer and was successfully pushed to the GitHub `Buffer-drops` repository at `latest.txt`.
-
-### Test reference
-
-A successful test produced:
-
-- commit: `d59d415`
-- push: `620e588..d59d415 main -> main`
-- `latest.txt`: 100,000 generated lines
-- Clipboard: exactly `GitHub Buffer-drops\latest.txt`
-
-This confirms the intended large-result workflow.
+The marker means that the complete result was successfully pushed to the user's GitHub `Buffer-drops` repository at `latest.txt`.
 
 ### Command construction requirement
 
 When giving a PowerShell command whose result may exceed the safe transfer size, the command itself must implement the decision:
 
-**generate/collect result → measure size → either Clipboard full result OR Buffer-drops + Git push + exact pointer**
+**generate/collect result → measure size → either Clipboard full result OR Buffer-drops + Git push + exact marker**
 
 Do not give a separate manual simulation of the GitHub upload when the purpose is to test the actual PowerShell result-handling mechanism.
 
