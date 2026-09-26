@@ -1137,3 +1137,15 @@ Regression test commit:
 - `e40a1fdebd1728d0ae64f2534b91ad254e63927c`
 
 Next step: sync locally, run the full suite + Doctor, then repeat DeepSeek discovery.
+
+### PowerShell output / Buffer-drop rule — 2026-09-26
+
+For every PowerShell command whose output must be returned through the Windows Clipboard:
+- if the output fits in the chat-safe clipboard size, copy the full output to the Clipboard;
+- if the output is too large, save the complete output to the local file:
+  `C:\\Proj\\Agents\\Agent_ChatAi\\Buffer-drops\\latest.txt`
+- push that file to GitHub at repository path `Buffer-drops/latest.txt`;
+- leave only this exact pointer in the Clipboard:
+  `GitHub Buffer-drops\\latest.txt`
+
+Therefore a pasted Clipboard result is always either the actual command output or the exact GitHub pointer above. Use this rule for future PowerShell diagnostic/test commands and preserve the same path and pointer spelling.
