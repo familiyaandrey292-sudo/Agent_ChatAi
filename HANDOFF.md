@@ -162,6 +162,8 @@ When the result is too large to return directly:
 
 `GitHub Buffer-drops\latest.txt`
 
+**IMPORTANT: the required Clipboard marker is exactly `GitHub Buffer-drops\latest.txt`. Never use `GitHub Nickname Buffer-drops\latest.txt`, never substitute a nickname, and never use any other marker.**
+
 6. Do not put any error, diagnostic text, commit message, Git output, or other text in Clipboard after successful push.
 
 ### Failure handling
@@ -175,7 +177,7 @@ If `git add`, `git commit`, or `git push` fails:
 
 ### Important distinction
 
-The large-result mechanism is **not** a manual GitHub API upload. It is a local PowerShell → local Git repository → normal `git add/commit/push` workflow.
+The large-result mechanism is **not** a manual GitHub API upload. It is a local PowerShell → local Git repository → normal git add/commit/push workflow.
 
 A pasted Clipboard value of exactly:
 
