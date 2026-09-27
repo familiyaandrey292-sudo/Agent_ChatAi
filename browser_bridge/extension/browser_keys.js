@@ -282,11 +282,15 @@ async function authenticatedFetch(
         await response.json();
 
     if (!response.ok) {
-        throw new Error(
+        const error = new Error(
             result.message ||
             result.error ||
             `Gateway HTTP ${response.status}`
         );
+        if (result && typeof result === "object") {
+            Object.assign(error, result);
+        }
+        throw error;
     }
 
     return result;
