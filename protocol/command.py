@@ -5,6 +5,8 @@ import hashlib
 import hmac
 import json
 import re
+import secrets
+import uuid
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -94,10 +96,13 @@ def create_command(
 
     command_args = dict(args or {})
 
-    if not isinstance(session_id, str) or SESSION_ID_PATTERN.fullmatch(session_id) is None:
+    session_id = session_id or secrets.token_urlsafe(16)
+    message_id = message_id or uuid.uuid4().hex
+
+    if SESSION_ID_PATTERN.fullmatch(session_id) is None:
         raise CommandValidationError("Invalid command session_id")
 
-    if not isinstance(message_id, str) or MESSAGE_ID_PATTERN.fullmatch(message_id) is None:
+    if MESSAGE_ID_PATTERN.fullmatch(message_id) is None:
         raise CommandValidationError("Invalid command message_id")
 
     return Command(
