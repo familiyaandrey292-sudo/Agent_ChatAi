@@ -20,6 +20,8 @@ class TestCommand(unittest.TestCase):
         decoded = decode_command(container)
 
         self.assertEqual(decoded, command)
+        self.assertTrue(command.session_id)
+        self.assertTrue(command.message_id)
         self.assertTrue(container.startswith("AGX1:C:"))
 
     def test_roundtrip_preserves_unicode_and_nested_args(self):
@@ -86,6 +88,44 @@ class TestCommand(unittest.TestCase):
 
         with self.assertRaises(CommandFormatError):
             decode_command(container)
+
+    def test_missing_session_id_is_rejected(self):
+        command = create_command(
+            "system.info",
+            {},
+        )
+        payload, digest = encode_command(command).rsplit(":", 1)
+        import base64
+        raw = base64.urlsafe_b64decode(
+            payload.split(":", 2)[-1] + "=="
+        ).decode("utf-8")
+        data = __import__("json").loads(raw)
+        data.pop("session_id")
+        rebuilt = base64.urlsafe_b64encode(
+            __import__("json").dumps(
+                data,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).decode("ascii").rstrip("=")
+        import hashlib
+        auth = hashlib.sha256(
+            ("C:" + rebuilt).encode("ascii")
+        ).hexdigest()
+        with self.assertRaises(CommandValidationError):
+            decode_command("AGX1:C:" + rebuilt + ":" + auth)
+
+    def test_message_id_is_preserved(self):
+        command = create_command(
+            "system.info",
+            {},
+            session_id="AAAAAAAAAAAAAAAAAAAAAA",
+            message_id="0123456789abcdef0123456789abcdef",
+        )
+        decoded = decode_command(encode_command(command))
+        self.assertEqual(decoded.message_id, command.message_id)
+        self.assertEqual(decoded.session_id, command.session_id)
 
     def test_args_must_be_object(self):
         command = create_command(
