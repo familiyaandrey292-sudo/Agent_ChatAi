@@ -99,6 +99,38 @@
             font-size: 12px;
         }
 
+        .session {
+            margin: 0 0 16px;
+            padding: 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 10px;
+        }
+
+        .session-title {
+            margin: 0 0 8px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .session-row {
+            display: flex;
+            gap: 6px;
+        }
+
+        #sessionId {
+            flex: 1 1 auto;
+            min-width: 0;
+            margin: 0;
+            font-family: ui-monospace, monospace;
+            font-size: 11px;
+        }
+
+        #copySessionId {
+            width: auto;
+            flex: 0 0 auto;
+            white-space: nowrap;
+        }
+
         .discovery {
             margin: 0 0 16px;
             padding: 12px;
@@ -223,6 +255,26 @@
             
         </div>
     </div>
+
+    <section class="session">
+        <h2 class="session-title">Сессия Bridge</h2>
+        <div class="session-row">
+            <input
+                id="sessionId"
+                type="text"
+                readonly
+                spellcheck="false"
+                aria-label="session_id"
+            >
+            <button
+                id="copySessionId"
+                type="button"
+                title="Скопировать session_id"
+            >
+                Копировать
+            </button>
+        </div>
+    </section>
 
     <section class="discovery">
         <h2 class="discovery-title">
