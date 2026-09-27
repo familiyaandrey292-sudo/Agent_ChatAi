@@ -209,6 +209,16 @@ def decode_command(container: str) -> Command:
             "Command args must be an object"
         )
 
+    if not isinstance(session_id, str) or not session_id:
+        raise CommandValidationError(
+            "Command session_id is missing"
+        )
+
+    if not isinstance(message_id, str) or not message_id:
+        raise CommandValidationError(
+            "Command message_id is missing"
+        )
+
     return create_command(
         action,
         args,
