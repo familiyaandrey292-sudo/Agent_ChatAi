@@ -395,12 +395,13 @@ def create_action(
     *,
     session_id: str,
     command_id: str | None = None,
+    message_id: str | None = None,
     sequence: int = 0,
 ) -> Action:
     raw = {
         "version": PROTOCOL_VERSION,
         "kind": "action",
-        "message_id": new_message_id(),
+        "message_id": message_id or new_message_id(),
         "command_id": command_id or new_command_id(),
         "session_id": session_id,
         "action": action,
