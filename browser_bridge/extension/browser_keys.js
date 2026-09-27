@@ -252,5 +252,6 @@ globalThis.AGXBrowserKeys = {
     ensureIdentity,
     getIdentity,
     saveIdentity,
+    getSessionId: async () => (await ensureIdentity()).sessionId,
     authenticatedFetch
 };
