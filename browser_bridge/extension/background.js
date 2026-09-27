@@ -343,8 +343,16 @@ chrome.runtime.onMessage.addListener(
                             ok: false,
                             error:
                                 "gateway_command_rejected",
+                            code:
+                                error.code || null,
                             message:
-                                error.message
+                                error.message,
+                            requestedTtl:
+                                error.requested_ttl ?? null,
+                            maxTtl:
+                                error.max_ttl ?? null,
+                            retryable:
+                                error.retryable === true
                         });
                     }
                 );
