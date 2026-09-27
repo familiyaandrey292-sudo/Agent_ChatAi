@@ -84,6 +84,12 @@ function saveIdentity(identity) {
     );
 }
 
+function newSessionId() {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    return b64urlEncode(bytes);
+}
+
 function b64urlEncode(bytes) {
     let binary = "";
 
@@ -115,7 +121,20 @@ async function ensureIdentity() {
 
     if (existing?.privateKey &&
         existing?.publicKeySpkiB64) {
-        return existing;
+        if (
+            typeof existing.sessionId === "string" &&
+            existing.sessionId
+        ) {
+            return existing;
+        }
+
+        const upgraded = {
+            ...existing,
+            sessionId: newSessionId()
+        };
+
+        await saveIdentity(upgraded);
+        return upgraded;
     }
 
     const keyPair = await crypto.subtle.generateKey(
@@ -135,7 +154,8 @@ async function ensureIdentity() {
         privateKey: keyPair.privateKey,
         publicKeySpkiB64: b64urlEncode(
             publicSpki
-        )
+        ),
+        sessionId: newSessionId()
     };
 
     await saveIdentity(identity);
