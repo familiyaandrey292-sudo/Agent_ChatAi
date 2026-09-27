@@ -1,4 +1,5 @@
-﻿import unittest
+﻿import time
+import unittest
 
 from protocol.command import (
     CommandFormatError,
@@ -126,6 +127,51 @@ class TestCommand(unittest.TestCase):
         decoded = decode_command(encode_command(command))
         self.assertEqual(decoded.message_id, command.message_id)
         self.assertEqual(decoded.session_id, command.session_id)
+
+    def test_timestamp_and_ttl_are_preserved(self):
+        command = create_command(
+            "system.info",
+            {},
+            session_id="AAAAAAAAAAAAAAAAAAAAAA",
+            message_id="0123456789abcdef0123456789abcdef",
+            timestamp=time.time(),
+            ttl=42,
+        )
+        decoded = decode_command(encode_command(command))
+        self.assertEqual(decoded.timestamp, command.timestamp)
+        self.assertEqual(decoded.ttl, 42.0)
+
+    def test_ttl_over_maximum_is_rejected(self):
+        from protocol.command import CommandTTLExceeded
+
+        with self.assertRaises(CommandTTLExceeded) as ctx:
+            create_command("system.info", {}, ttl=301)
+
+        self.assertEqual(ctx.exception.requested_ttl, 301)
+        self.assertEqual(ctx.exception.max_ttl, 300)
+
+    def test_expired_command_is_rejected(self):
+        with self.assertRaises(CommandValidationError) as ctx:
+            create_command(
+                "system.info",
+                {},
+                timestamp=time.time() - 10,
+                ttl=1,
+            )
+        self.assertEqual(str(ctx.exception), "COMMAND_EXPIRED")
+
+    def test_future_command_is_rejected(self):
+        with self.assertRaises(CommandValidationError) as ctx:
+            create_command(
+                "system.info",
+                {},
+                timestamp=time.time() + 31,
+                ttl=60,
+            )
+        self.assertEqual(
+            str(ctx.exception),
+            "COMMAND_TIMESTAMP_IN_FUTURE",
+        )
 
     def test_args_must_be_object(self):
         command = create_command(
