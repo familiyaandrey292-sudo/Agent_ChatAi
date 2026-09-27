@@ -46,10 +46,22 @@ if (bridgeToggle) {
         "Alt+Shift+A — включить или выключить Bridge";
 }
 
+async function getActiveTabSessionId() {
+    const tabs = await chrome.tabs.query({
+        active: true,
+        currentWindow: true
+    });
+    const tab = tabs[0];
+    if (!tab || !Number.isInteger(tab.id)) {
+        throw new Error("active_tab_not_found");
+    }
+    return AGXBrowserKeys.getSessionIdForTab(tab.id);
+}
+
 async function copySessionId() {
     try {
         const sessionId =
-            await AGXBrowserKeys.getSessionId();
+            await getActiveTabSessionId();
 
         if (
             navigator.clipboard &&
@@ -86,7 +98,7 @@ async function copySessionId() {
 async function refreshSessionId() {
     try {
         const sessionId =
-            await AGXBrowserKeys.getSessionId();
+            await getActiveTabSessionId();
 
         if (sessionIdInput) {
             sessionIdInput.value = sessionId;

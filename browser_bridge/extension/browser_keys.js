@@ -197,6 +197,30 @@ async function signRequest({
     return b64urlEncode(signature);
 }
 
+async function getSessionIdForTab(tabId) {
+    if (!Number.isInteger(tabId) || tabId < 0) {
+        throw new Error("invalid_tab_id");
+    }
+
+    const key = "session:" + tabId;
+    const stored = await chrome.storage.session.get(key);
+    if (typeof stored[key] === "string" && stored[key]) {
+        return stored[key];
+    }
+
+    const sessionId = newSessionId();
+    await chrome.storage.session.set({
+        [key]: sessionId
+    });
+    return sessionId;
+}
+
+async function deleteSessionIdForTab(tabId) {
+    if (Number.isInteger(tabId) && tabId >= 0) {
+        await chrome.storage.session.remove("session:" + tabId);
+    }
+}
+
 async function authenticatedFetch(
     path,
     payload
@@ -273,5 +297,7 @@ globalThis.AGXBrowserKeys = {
     getIdentity,
     saveIdentity,
     getSessionId: async () => (await ensureIdentity()).sessionId,
+    getSessionIdForTab,
+    deleteSessionIdForTab,
     authenticatedFetch
 };

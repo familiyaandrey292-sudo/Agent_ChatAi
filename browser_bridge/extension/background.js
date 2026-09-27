@@ -135,6 +135,16 @@ async function cancelAction(token) {
         );
 }
 
+chrome.tabs.onRemoved.addListener((tabId) => {
+    globalThis.AGXBrowserKeys
+        .deleteSessionIdForTab(tabId)
+        .catch((error) => console.error(
+            "[Agent ChatAI Browser Bridge]",
+            "tab session cleanup failed",
+            error
+        ));
+});
+
 chrome.runtime.onInstalled.addListener(() => {
     console.log(
         "Agent ChatAI Browser Bridge installed."
@@ -257,13 +267,28 @@ chrome.runtime.onMessage.addListener(
                 return;
             }
 
+            const tabId = sender.tab?.id;
+            if (!Number.isInteger(tabId) || tabId < 0) {
+                sendResponse({
+                    ok: false,
+                    error: "command_tab_unknown"
+                });
+                return;
+            }
+
             globalThis.AGXBrowserKeys
-                .authenticatedFetch(
-                    "/v1/command",
-                    {
-                        container:
-                            containers[0]
-                    }
+                .getSessionIdForTab(tabId)
+                .then((sessionId) =>
+                    globalThis.AGXBrowserKeys
+                        .authenticatedFetch(
+                            "/v1/command",
+                            {
+                                container:
+                                    containers[0],
+                                session_id:
+                                    sessionId
+                            }
+                        )
                 )
                 .then(
                     async (payload) => {

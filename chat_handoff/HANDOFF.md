@@ -18,16 +18,26 @@ At the beginning of the chat, the user may provide the current Bridge `session_i
 
 When a PC action is needed, output a valid `AGX1:C` container in the rendered chat.
 
-The decoded JSON payload MUST contain exactly these required fields:
+The decoded JSON payload MUST contain these fields:
 
 ```json
 {
-  "session_id": "<current Bridge session_id>",
+  "session_id": "<current Bridge tab session_id>",
   "message_id": "<new unique message_id>",
   "action": "<action name>",
-  "args": {}
+  "args": {},
+  "timestamp": 1770000000.0,
+  "ttl": 30
 }
 ```
+
+- `timestamp` is the Unix time when the AI creates the command.
+- `ttl` is the number of seconds the AI estimates are needed for delivery and processing.
+- Calculate a reasonable `ttl` for the expected chat/browser delay; do not use an unnecessarily large value.
+- Gateway enforces an absolute maximum `MAX_COMMAND_LIFETIME`.
+- If Gateway reports `COMMAND_TTL_EXCEEDED`, create a new command with a fresh `timestamp` and a `ttl` not exceeding the reported maximum.
+- A command with an expired `timestamp + ttl` is not executed.
+- A command from another browser tab/session is not executed.
 
 The container format is:
 

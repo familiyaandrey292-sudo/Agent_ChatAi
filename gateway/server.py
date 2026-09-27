@@ -23,7 +23,10 @@ from protocol.MSGv1 import (
     create_action,
     new_hmac_secret,
 )
-from protocol.command import decode_command
+from protocol.command import (
+    CommandTTLExceeded,
+    decode_command,
+)
 
 
 class GatewayHTTPHandler(BaseHTTPRequestHandler):
@@ -443,6 +446,12 @@ class GatewayHTTPHandler(BaseHTTPRequestHandler):
 
             command = decode_command(container)
 
+            request_session_id = payload.get("session_id")
+            if not isinstance(request_session_id, str) or not request_session_id:
+                raise ValueError("missing_session_id")
+            if request_session_id != command.session_id:
+                raise ValueError("COMMAND_SESSION_MISMATCH")
+
             if self.executor is None:
                 self._send_json(
                     503,
@@ -503,13 +512,35 @@ class GatewayHTTPHandler(BaseHTTPRequestHandler):
                     confirmation_token,
             )
 
+        except CommandTTLExceeded as exc:
+            self._send_json(
+                409,
+                {
+                    "error": "command_rejected",
+                    "code": "COMMAND_TTL_EXCEEDED",
+                    "message": str(exc),
+                    "requested_ttl": exc.requested_ttl,
+                    "max_ttl": exc.max_ttl,
+                    "retryable": True,
+                },
+            )
+
         except ValueError as exc:
             self._send_json(
                 409,
                 {
-                    "error":
-                        "command_rejected",
+                    "error": "command_rejected",
+                    "code": (
+                        "COMMAND_SESSION_MISMATCH"
+                        if str(exc) == "COMMAND_SESSION_MISMATCH"
+                        else "COMMAND_INVALID"
+                    ),
                     "message": str(exc),
+                    "retryable": str(exc) in {
+                        "COMMAND_SESSION_MISMATCH",
+                        "COMMAND_EXPIRED",
+                        "COMMAND_TIMESTAMP_IN_FUTURE",
+                    },
                 },
             )
 
