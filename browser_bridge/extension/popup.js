@@ -9,6 +9,12 @@ const pairButton =
 const status =
     document.getElementById("status");
 
+const sessionIdInput =
+    document.getElementById("sessionId");
+
+const copySessionIdButton =
+    document.getElementById("copySessionId");
+
 const bridgeToggle =
     document.getElementById("bridgeToggle");
 
@@ -38,6 +44,59 @@ let currentDiscoveryResult = "";
 if (bridgeToggle) {
     bridgeToggle.title =
         "Alt+Shift+A — включить или выключить Bridge";
+}
+
+async function copySessionId() {
+    try {
+        const sessionId =
+            await AGXBrowserKeys.getSessionId();
+
+        if (
+            navigator.clipboard &&
+            typeof navigator.clipboard.writeText ===
+                "function"
+        ) {
+            await navigator.clipboard.writeText(
+                sessionId
+            );
+        } else {
+            const helper =
+                document.createElement("textarea");
+
+            helper.value = sessionId;
+            document.body.appendChild(helper);
+            helper.select();
+            document.execCommand("copy");
+            helper.remove();
+        }
+
+        if (status) {
+            status.textContent =
+                "session_id скопирован.";
+        }
+    } catch (error) {
+        if (status) {
+            status.textContent =
+                "Не удалось скопировать session_id: " +
+                error.message;
+        }
+    }
+}
+
+async function refreshSessionId() {
+    try {
+        const sessionId =
+            await AGXBrowserKeys.getSessionId();
+
+        if (sessionIdInput) {
+            sessionIdInput.value = sessionId;
+        }
+    } catch (error) {
+        if (status) {
+            status.textContent =
+                "Error: " + error.message;
+        }
+    }
 }
 
 function randomSevenDigitNumber() {
@@ -504,6 +563,13 @@ setDiscoveryChallenge(
     makeDiscoveryChallenge()
 );
 
+copySessionIdButton?.addEventListener(
+    "click",
+    () => {
+        copySessionId();
+    }
+);
+
 copyDiscovery?.addEventListener(
     "click",
     () => {
@@ -591,6 +657,7 @@ pairButton.addEventListener(
 );
 
 refreshStatus().catch(() => {});
+refreshSessionId();
 getDiscoveryState();
 
 
