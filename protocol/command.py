@@ -117,6 +117,8 @@ def encode_command(command: Command) -> str:
     command = create_command(
         command.action,
         command.args,
+        session_id=command.session_id,
+        message_id=command.message_id,
     )
 
     canonical = _canonical_json(
