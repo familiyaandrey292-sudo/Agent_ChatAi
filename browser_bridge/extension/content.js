@@ -1746,11 +1746,45 @@ function reportContainers(containers) {
                 }
 
                 if (!response || !response.ok) {
-                    document.documentElement.dataset
-                        .agentChataiGatewayError =
+                    const code =
+                        response?.code ||
+                        response?.error ||
+                        "unknown_error";
+                    const message =
                         response?.message ||
                         response?.error ||
                         "unknown_error";
+
+                    document.documentElement.dataset
+                        .agentChataiGatewayError =
+                        message;
+
+                    if (
+                        response?.retryable === true &&
+                        code.startsWith("COMMAND_")
+                    ) {
+                        const details = [
+                            "[Agent ChatAI Bridge] Команда не выполнена.",
+                            "Код: " + code,
+                            message
+                        ];
+
+                        if (response?.maxTtl !== null) {
+                            details.push(
+                                "Допустимый максимум ttl: " +
+                                response.maxTtl +
+                                " секунд."
+                            );
+                        }
+
+                        details.push(
+                            "Сформируй новую AGX1:C с новым timestamp."
+                        );
+
+                        publishBridgeNoticeToChat(
+                            details.join(" ")
+                        );
+                    }
                     return;
                 }
 
@@ -2178,6 +2212,48 @@ function submitPublishedResultWhenReady(
         "submit_failed";
     clearBridgeGeneratedComposer(composer);
     return false;
+}
+
+function publishBridgeNoticeToChat(message) {
+    if (
+        typeof message !== "string" ||
+        !message
+    ) {
+        return false;
+    }
+
+    const composer = findChatComposer();
+    if (!composer) {
+        document.documentElement.dataset.agentChataiChatOutput =
+            "composer_not_found";
+        return false;
+    }
+
+    try {
+        setComposerText(composer, message);
+        markBridgeGeneratedComposer(composer, message);
+        document.documentElement.dataset.agentChataiChatOutput =
+            "notice_inserted";
+
+        window.setTimeout(
+            () => submitPublishedResultWhenReady(
+                composer,
+                message
+            ),
+            BRIDGE_SEND_RETRY_MS
+        );
+        return true;
+    } catch (error) {
+        clearBridgeGeneratedComposer(composer);
+        document.documentElement.dataset.agentChataiChatOutput =
+            "notice_error";
+        console.error(
+            "[Agent ChatAI Browser Bridge]",
+            "chat notice injection failed",
+            error
+        );
+        return false;
+    }
 }
 
 function publishResultToChat(resultContainer) {
