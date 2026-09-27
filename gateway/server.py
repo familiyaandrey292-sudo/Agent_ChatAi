@@ -457,7 +457,8 @@ class GatewayHTTPHandler(BaseHTTPRequestHandler):
             action = create_action(
                 command.action,
                 command.args,
-                session_id=new_session_id(),
+                session_id=command.session_id,
+                message_id=command.message_id,
             )
 
             action_container = encode_action(
