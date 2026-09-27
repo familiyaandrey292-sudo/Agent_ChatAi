@@ -75,6 +75,8 @@ Current local validation checkpoint:
 
 **Последний подтверждённый checkpoint: 108/108 tests — OK**
 
+The current unverified change set adds per-tab AGX1:C sessions and TTL/timestamp validation; local tests/Doctor must be rerun before calling this stage verified.
+
 **DOCTOR: PASS**
 
 The proven backend path is:
@@ -94,6 +96,19 @@ Next project stage is the true AI-generated AGX1:C E2E.
 
 ---
 
+## 5A. AGX1:C session and freshness rules — current stage
+
+- session_id is per browser tab, not global to the extension.
+- Browser Bridge stores a tab session by tabId; popup displays the session of the currently active tab.
+- /v1/command receives both container and authenticated session_id.
+- Gateway requires the request session_id to equal the decoded AGX1:C session_id.
+- AGX1:C now contains timestamp and ttl.
+- AI calculates ttl as the expected delivery/processing allowance.
+- Gateway enforces MAX_COMMAND_LIFETIME = 300 seconds and does not silently clamp TTL.
+- If TTL exceeds the maximum, Gateway returns COMMAND_TTL_EXCEEDED with requested_ttl and max_ttl.
+- Expired or future AGX1:C commands are rejected.
+- Retryable command validation errors are sent back into the rendered chat so the AI can regenerate the command.
+- Different session_id values remain independent; Gateway/replay protection must not serialize them into one global session.
 ## 5. Browser Bridge current next step
 
 The intended final behavior is:
