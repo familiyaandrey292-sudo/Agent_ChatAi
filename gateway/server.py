@@ -22,7 +22,6 @@ from protocol.MSGv1 import (
     encode_action,
     create_action,
     new_hmac_secret,
-    new_session_id,
 )
 from protocol.command import decode_command
 
