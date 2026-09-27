@@ -8,6 +8,9 @@ import re
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{22}$")
+MESSAGE_ID_PATTERN = re.compile(r"^[0-9a-fA-F]{32}$")
+
 
 PREFIX = "AGX1"
 COMMAND_KIND = "C"
@@ -28,6 +31,8 @@ class CommandValidationError(ValueError):
 class Command:
     action: str
     args: dict[str, Any]
+    session_id: str
+    message_id: str
 
 
 def _canonical_json(value: Any) -> str:
@@ -68,6 +73,9 @@ def _sha256_hex(payload: str) -> str:
 def create_command(
     action: str,
     args: Mapping[str, Any] | None = None,
+    *,
+    session_id: str | None = None,
+    message_id: str | None = None,
 ) -> Command:
     if not isinstance(action, str) or not action:
         raise CommandValidationError(
@@ -86,9 +94,17 @@ def create_command(
 
     command_args = dict(args or {})
 
+    if not isinstance(session_id, str) or SESSION_ID_PATTERN.fullmatch(session_id) is None:
+        raise CommandValidationError("Invalid command session_id")
+
+    if not isinstance(message_id, str) or MESSAGE_ID_PATTERN.fullmatch(message_id) is None:
+        raise CommandValidationError("Invalid command message_id")
+
     return Command(
         action=action,
         args=command_args,
+        session_id=session_id,
+        message_id=message_id,
     )
 
 
@@ -102,6 +118,8 @@ def encode_command(command: Command) -> str:
         {
             "action": command.action,
             "args": command.args,
+            "session_id": command.session_id,
+            "message_id": command.message_id,
         }
     )
 
@@ -173,6 +191,8 @@ def decode_command(container: str) -> Command:
 
     action = data.get("action")
     args = data.get("args")
+    session_id = data.get("session_id")
+    message_id = data.get("message_id")
 
     if not isinstance(action, str) or not action:
         raise CommandValidationError(
@@ -187,5 +207,7 @@ def decode_command(container: str) -> Command:
     return create_command(
         action,
         args,
+        session_id=session_id,
+        message_id=message_id,
     )
 
