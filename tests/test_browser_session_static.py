@@ -24,7 +24,8 @@ class TestBrowserSessionStatic(unittest.TestCase):
         self.assertIn('id="sessionId"', html)
         self.assertIn('id="copySessionId"', html)
         self.assertIn("copySessionId()", js)
-        self.assertIn("getSessionId()", js)
+        self.assertIn("getSessionIdForTab", js)
+        self.assertIn("chrome.tabs.query", js)
 
 
 if __name__ == "__main__":
