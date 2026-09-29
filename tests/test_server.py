@@ -426,6 +426,7 @@ class TestGatewayHTTP(unittest.TestCase):
             body = json.dumps(
                 {
                     "container": encode_command(command),
+                    "session_id": command.session_id,
                 }
             ).encode("utf-8")
 
