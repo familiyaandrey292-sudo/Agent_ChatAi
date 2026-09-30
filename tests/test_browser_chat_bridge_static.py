@@ -1,4 +1,4 @@
-﻿import unittest
+import unittest
 from pathlib import Path
 
 
@@ -29,7 +29,30 @@ class TestBrowserChatBridgeStatic(unittest.TestCase):
         self.assertIn("result.resultContainer", self.text)
         self.assertIn("publishResultToChat(", self.text)
 
+    def test_command_container_is_detected_and_forwarded(self):
+        self.assertIn("AGX_COMMAND_PATTERN", self.text)
+        self.assertIn("extractCommandContainers(", self.text)
+        self.assertIn('"AGX_COMMAND_DETECTED"', self.text)
+        self.assertIn("containers: [container]", self.text)
+
+    def test_command_result_is_auto_submitted(self):
+        self.assertIn('resultContainer.startsWith("AGX1:R:")', self.text)
+        self.assertIn("submitPublishedResultWhenReady(", self.text)
+        self.assertIn("submitChatComposer(composer)", self.text)
+        self.assertIn("agentChataiChatOutput", self.text)
+        self.assertIn('"submitted"', self.text)
+
+    def test_published_result_is_not_reprocessed_as_duplicate(self):
+        self.assertIn("lastPublishedResult", self.text)
+        self.assertIn("resultContainer === lastPublishedResult", self.text)
+        self.assertIn("lastPublishedResult = resultContainer", self.text)
+
+    def test_bridge_generated_composer_has_reprocessing_guard(self):
+        self.assertIn("bridgeGeneratedComposer", self.text)
+        self.assertIn("bridgeOwnsComposerText(", self.text)
+        self.assertIn("markBridgeGeneratedComposer(", self.text)
+        self.assertIn("clearBridgeGeneratedComposer(", self.text)
+
 
 if __name__ == "__main__":
     unittest.main()
-
