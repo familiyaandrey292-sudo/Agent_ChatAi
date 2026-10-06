@@ -242,6 +242,14 @@ When giving a PowerShell command whose result may exceed the safe transfer size,
 
 Do not give a separate manual simulation of the GitHub upload when the purpose is to test the actual PowerShell result-handling mechanism.
 
+### Mandatory AI workflow rule (2026-10-07)
+
+Every time the AI gives executable steps to the user, it MUST:
+
+1. Provide ALL steps for the current phase as ONE copyable PowerShell block (no manual file creation, no separate step-by-step messages unless a verification gate requires it).
+2. The block must end with automatic clipboard export of the combined results (`Set-Clipboard`), using the size-decision above (full result → Clipboard; oversized → Buffer-drops + marker).
+3. The user pastes the Clipboard content back into the chat; only then the AI issues the next block.
+
 ---
 
 ## 8. Next AI instructions
