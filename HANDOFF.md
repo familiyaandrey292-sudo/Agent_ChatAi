@@ -73,9 +73,13 @@ Backend/protocol/security are in a verified state.
 
 Current local validation checkpoint:
 
-**Последний подтверждённый checkpoint: 108/108 tests — OK**
+**Последний подтверждённый checkpoint: 116/116 tests on Windows — OK, DOCTOR: PASS**
 
-The current unverified change set adds per-tab AGX1:C sessions and TTL/timestamp validation; local tests/Doctor must be rerun before calling this stage verified.
+The per-tab AGX1:C sessions and TTL/timestamp validation change set (stage 5A) is now VERIFIED:
+
+- Windows full suite: 116 tests, OK.
+- ops/doctor.ps1 on Windows: all 16 checks PASS (Python, cryptography, Gateway process/port, health, browser auth pairing, challenge, signing keys, replay DB, audit JSONL, autostart task, extension files, JS syntax, Python compilation, test suite).
+- Linux CI run: 121 passed / 4 failed; the 4 failures are platform-only assertions (`'Linux' != 'Windows'` in test_agent/test_executor/test_server system.info checks), not regressions.
 
 **DOCTOR: PASS**
 
@@ -96,7 +100,7 @@ Next project stage is the true AI-generated AGX1:C E2E.
 
 ---
 
-## 5A. AGX1:C session and freshness rules — current stage
+## 5A. AGX1:C session and freshness rules — VERIFIED
 
 - session_id is per browser tab, not global to the extension.
 - Browser Bridge stores a tab session by tabId; popup displays the session of the currently active tab.
@@ -109,6 +113,22 @@ Next project stage is the true AI-generated AGX1:C E2E.
 - Expired or future AGX1:C commands are rejected.
 - Retryable command validation errors are sent back into the rendered chat so the AI can regenerate the command.
 - Different session_id values remain independent; Gateway/replay protection must not serialize them into one global session.
+
+Verification status: confirmed on Windows (116 tests OK + DOCTOR PASS). Command-level error contract observed in E2E tests: all command rejections return HTTP 409 with `error=command_rejected` and a machine-readable `code` (COMMAND_INVALID / COMMAND_TTL_EXCEEDED / COMMAND_SESSION_MISMATCH) plus `retryable` flag.
+
+## 5B. True AI-generated AGX1:C E2E — automated part DONE, live chat part PENDING
+
+New suite: `tests/test_e2e_ai_command.py` (9 tests, all passing locally) simulates the full AI pipeline:
+
+1. AI-style free-form reply (prose + markdown fences + inline code, Russian text) containing an AGX1:C container.
+2. Extraction via the exact content.js regex mirror (`AGX1:C:[A-Za-z0-9_-]+:[A-Fa-f0-9]{64}`), byte-identical containers, dedupe, truncated containers not extracted.
+3. POST to live Gateway `/v1/command` with per-tab session_id → execution → signed AGX1:R result verified with HMAC.
+4. Realistic AI failure modes rejected by Gateway: hallucinated integrity tag, tampered payload with stale tag, stale timestamp (COMMAND_EXPIRED), ttl > MAX (COMMAND_TTL_EXCEEDED, retryable), wrong tab session (COMMAND_SESSION_MISMATCH, retryable), action outside allowlist (structured non-ok result).
+
+Remaining for stage closure — live manual E2E in Brave/Chromium with a real test AI chat:
+- the test AI must generate AGX1:C into the rendered chat (no manual paste);
+- verify execution succeeds, signed RESULT is inserted and auto-submitted;
+- verify no self-reprocessing, no duplicate execution, no command/result loop.
 ## 5. Browser Bridge current next step
 
 The intended final behavior is:
