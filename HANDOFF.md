@@ -139,7 +139,7 @@ Because the tag length failed content.js AGX_COMMAND_PATTERN ({64}), extraction 
 
 Process issue found and fixed: two AI handoff docs existed — root AI_CHAT_HANDOFF.md (Russian, OLD 4-field schema, "<integrity>" wording) and chat_handoff/HANDOFF.md (English, current 6-field schema). The parallel chat followed AI_CHAT_HANDOFF.md literally and produced a valid-per-that-doc but rejected command. AI_CHAT_HANDOFF.md has been updated to the current contract (timestamp/ttl, 32-hex message_id, full 64-hex sha256 over "C:"+b64url, canonical sorted-key JSON). Action item: keep a single source of truth for AI chat rules or explicitly deprecate one of the files.
 
-Usability follow-up (open): containers that fail the envelope regex are invisible to the user. Consider a heuristic warning in content.js (e.g., text matching AGX1:C:[A-Za-z0-9_-]+:[A-Fa-f0-9]{8,63}) shown as a status notice so malformed AI commands surface instead of being silently dropped.
+Usability follow-up (DONE): containers that fail the envelope regex are now surfaced instead of being silently dropped. content.js gained AGX_COMMAND_NEAR_MISS_PATTERN (AGX1:C with a 1-63 hex tag), reportNearMissCommands() and describeNearMissCommand(): on a near-miss the command panel shows an error status listing concrete contract violations (missing timestamp/ttl, non-32-hex message_id, short integrity tag) plus a hint to regenerate per AI_CHAT_HANDOFF.md; dataset flag agentChataiNearMiss=1 for testability. Valid 64-hex containers never trigger the warning (regex verified against live attempt #1 token: strict=0 hits, near=1 hit with correct diagnosis). Deduped via lastNearMissWarning. Covered by two new static tests.
 ## 5. Browser Bridge current next step
 
 The intended final behavior is:

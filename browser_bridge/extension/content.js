@@ -70,7 +70,12 @@ const AGX_ACTION_PATTERN =
 
 const AGX_COMMAND_PATTERN =
     /AGX1:C:[A-Za-z0-9_-]+:[A-Fa-f0-9]{64}/g;
+
+const AGX_COMMAND_NEAR_MISS_PATTERN =
+    /AGX1:C:[A-Za-z0-9_-]*:[A-Fa-f0-9]{1,63}\b/g;
+
 let lastCommandContainer = null;
+let lastNearMissWarning = null;
 let lastContainer = null;
 let confirmationToken = null;
 let confirmationBar = null;
@@ -1542,6 +1547,96 @@ function extractCommandContainers(text) {
     return [...new Set(
         text.match(AGX_COMMAND_PATTERN) || []
     )];
+}
+
+function describeNearMissCommand(container) {
+    const parts = String(container).split(":");
+    const encoded = parts[2] || "";
+    const tag = parts[3] || "";
+
+    let payload = null;
+
+    try {
+        const normalized =
+            encoded.replace(/-/g, "+").replace(/_/g, "/");
+        const padded =
+            normalized +
+            "=".repeat((4 - (normalized.length % 4)) % 4);
+        payload = JSON.parse(atob(padded));
+    } catch (_) {
+        payload = null;
+    }
+
+    const problems = [];
+
+    if (tag.length !== 64) {
+        problems.push(
+            `integrity-тег ${tag.length} симв. вместо 64`
+        );
+    }
+
+    if (!payload || typeof payload !== "object") {
+        problems.push("payload не декодируется как JSON");
+        return problems.join("; ");
+    }
+
+    for (const field of [
+        "session_id",
+        "message_id",
+        "action",
+        "args",
+        "timestamp",
+        "ttl"
+    ]) {
+        if (!(field in payload)) {
+            problems.push(`нет поля ${field}`);
+        }
+    }
+
+    if (
+        typeof payload.message_id === "string" &&
+        !/^[0-9a-f]{32}$/i.test(payload.message_id)
+    ) {
+        problems.push(
+            `message_id "${payload.message_id}" — ` +
+            "не 32 hex-символа"
+        );
+    }
+
+    return problems.join("; ");
+}
+
+function reportNearMissCommands(text) {
+    if (typeof text !== "string" || !text.length) {
+        return;
+    }
+
+    const candidates = [...new Set(
+        text.match(AGX_COMMAND_NEAR_MISS_PATTERN) || []
+    )];
+
+    for (const container of candidates) {
+        if (container === lastNearMissWarning) {
+            continue;
+        }
+
+        lastNearMissWarning = container;
+
+        const detail =
+            describeNearMissCommand(container);
+
+        setCommandStatus(
+            "malformed command",
+            "error",
+            `Команда не распознана Bridge и не отправлена` +
+            (detail ? `: ${detail}` : "") +
+            ". Попросите ИИ перегенерировать AGX1:C по AI_CHAT_HANDOFF.md.",
+            null
+        );
+
+        document.documentElement.dataset
+            .agentChataiNearMiss = "1";
+    }
 }
 function removeConfirmationBar() {
     if (confirmationBar) {
@@ -3830,6 +3925,8 @@ function inspectDocument() {
         document.body?.innerText ||
         document.documentElement?.innerText ||
         "";
+
+    reportNearMissCommands(text);
 
     reportContainers(
         extractActionContainers(text)

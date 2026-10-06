@@ -53,6 +53,27 @@ class TestBrowserChatBridgeStatic(unittest.TestCase):
         self.assertIn("markBridgeGeneratedComposer(", self.text)
         self.assertIn("clearBridgeGeneratedComposer(", self.text)
 
+    def test_near_miss_command_is_surfaced_not_silently_ignored(self):
+        self.assertIn("AGX_COMMAND_NEAR_MISS_PATTERN", self.text)
+        self.assertIn("function reportNearMissCommands(", self.text)
+        self.assertIn("reportNearMissCommands(text)", self.text)
+        self.assertIn("agentChataiNearMiss", self.text)
+        # near-miss detection must not fire on valid containers:
+        # the short-hex {1,63} alternative is terminated by \b and the
+        # strict pattern consumes full 64-hex tags first.
+        self.assertIn("[A-Fa-f0-9]{1,63}\\b", self.text)
+
+    def test_near_miss_diagnosis_names_contract_fields(self):
+        self.assertIn("function describeNearMissCommand(", self.text)
+        for field in (
+            "session_id",
+            "message_id",
+            "timestamp",
+            "ttl",
+        ):
+            self.assertIn(field, self.text)
+        self.assertIn("integrity-тег", self.text)
+
 
 if __name__ == "__main__":
     unittest.main()
