@@ -1,0 +1,192 @@
+From 2a7bd2f8460b3f14ccac532a6c0173a8246777e0 Mon Sep 17 00:00:00 2001
+From: "qwen.ai[bot]" <qwenlm-intl@service.alibaba.com>
+Date: Tue, 6 Oct 2026 21:54:08 +0000
+Subject: [PATCH] fix: self-heal replay_keys schema on every connection (no
+ such table / legacy single-column DB); add BEGIN IMMEDIATE + rollback;
+ regression tests
+
+---
+ gateway/replay_store.py        | 73 ++++++++++++++++++++++++++--------
+ tests/test_replay_legacy_db.py | 61 ++++++++++++++++++++++++++++
+ 2 files changed, 117 insertions(+), 17 deletions(-)
+ create mode 100644 tests/test_replay_legacy_db.py
+
+diff --git a/gateway/replay_store.py b/gateway/replay_store.py
+index d7a554c..73457be 100644
+--- a/gateway/replay_store.py
++++ b/gateway/replay_store.py
+@@ -52,34 +52,68 @@ class SQLiteReplayStore:
+ 
+         self._initialize()
+ 
+-    def _connect(self) -> sqlite3.Connection:
+-        return sqlite3.connect(
+-            self.path,
+-            timeout=5.0,
+-        )
+-
+-    def _initialize(self) -> None:
+-        connection = self._connect()
+-
+-        try:
+-            connection.execute(
+-                """
++    # Schema is created lazily on every connection, not only in __init__.
++    # Legacy databases created before per-tab sessions may exist without the
++    # replay_keys table; a one-time init at process start left such DBs broken
++    # ("no such table: replay_keys") until the gateway was restarted.
++    _SCHEMA_SQL = """
+                 CREATE TABLE IF NOT EXISTS replay_keys (
+                     session_id TEXT NOT NULL,
+                     message_id TEXT NOT NULL,
+                     created_at INTEGER NOT NULL,
+                     PRIMARY KEY (session_id, message_id)
+                 )
+-                """
+-            )
++    """
+ 
+-            connection.execute(
+-                """
++    _INDEX_SQL = """
+                 CREATE INDEX IF NOT EXISTS idx_replay_created_at
+                 ON replay_keys(created_at)
+-                """
++    """
++
++    def _connect(self) -> sqlite3.Connection:
++        connection = sqlite3.connect(
++            self.path,
++            timeout=5.0,
++        )
++
++        self._ensure_schema(connection)
++
++        return connection
++
++    @staticmethod
++    def _ensure_schema(connection: sqlite3.Connection) -> None:
++        """Create or migrate the replay_keys table on every connection.
++
++        Legacy databases may lack the table entirely ("no such table") or
++        carry the pre-5A single-column schema keyed only by message_id.
++        Such tables are rebuilt with the composite (session_id, message_id)
++        primary key; old rows are dropped since per-tab sessions changed
++        replay semantics anyway.
++        """
++        row = connection.execute(
++            "SELECT sql FROM sqlite_master WHERE type='table' "
++            "AND name='replay_keys'"
++        ).fetchone()
++
++        if row is not None and "session_id" in (row[0] or ""):
++            connection.execute(
++                "CREATE INDEX IF NOT EXISTS idx_replay_created_at "
++                "ON replay_keys(created_at)"
+             )
++            return
++
++        # Missing table or legacy schema without session_id -> rebuild.
++        connection.execute("DROP TABLE IF EXISTS replay_keys")
++        connection.execute(SQLiteReplayStore._SCHEMA_SQL)
++        connection.execute(
++            "CREATE INDEX IF NOT EXISTS idx_replay_created_at "
++            "ON replay_keys(created_at)"
++        )
+ 
++    def _initialize(self) -> None:
++        connection = self._connect()
++
++        try:
+             connection.commit()
+         finally:
+             connection.close()
+@@ -94,6 +128,8 @@ class SQLiteReplayStore:
+             connection = self._connect()
+ 
+             try:
++                connection.execute("BEGIN IMMEDIATE")
++
+                 connection.execute(
+                     "DELETE FROM replay_keys WHERE created_at < ?",
+                     (cutoff,),
+@@ -117,6 +153,9 @@ class SQLiteReplayStore:
+ 
+                 connection.commit()
+                 return cursor.rowcount == 1
++            except Exception:
++                connection.rollback()
++                raise
+             finally:
+                 connection.close()
+ 
+diff --git a/tests/test_replay_legacy_db.py b/tests/test_replay_legacy_db.py
+new file mode 100644
+index 0000000..608b3b1
+--- /dev/null
++++ b/tests/test_replay_legacy_db.py
+@@ -0,0 +1,61 @@
++"""Regression: legacy replay DB without replay_keys table must self-heal.
++
++Stage 5A moved the replay PK to (session_id, message_id). Databases created
++by older gateway builds either lack the table entirely or carry the old
++single-column schema. Previously SQLiteReplayStore only ran CREATE TABLE in
++__init__, so a running process hitting such a DB raised
++"no such table: replay_keys". Schema is now ensured on every connection.
++"""
++
++import sqlite3
++import tempfile
++import unittest
++from pathlib import Path
++
++from gateway.replay_store import SQLiteReplayStore
++
++
++class TestReplayLegacyDatabase(unittest.TestCase):
++    def test_existing_empty_db_file_gets_table_on_reserve(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            db = Path(tmp) / "replay.sqlite3"
++            # Simulate a file created by an old build that never initialized
++            # the schema (empty valid sqlite file).
++            sqlite3.connect(db).close()
++
++            store = SQLiteReplayStore.__new__(SQLiteReplayStore)
++            # Skip __init__-time init to emulate a long-running process whose
++            # DB lost/never had the table; reserve() must still work.
++            from threading import Lock
++
++            store.path = db
++            store.retention_seconds = 900
++            store._lock = Lock()
++
++            self.assertTrue(store.reserve("sess-a", "m" * 32))
++            self.assertFalse(store.reserve("sess-a", "m" * 32))
++            self.assertTrue(store.reserve("sess-b", "m" * 32))
++
++    def test_legacy_single_column_schema_is_migrated(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            db = Path(tmp) / "replay.sqlite3"
++            conn = sqlite3.connect(db)
++            conn.execute(
++                "CREATE TABLE replay_keys (message_id TEXT PRIMARY KEY, "
++                "created_at INTEGER NOT NULL)"
++            )
++            conn.execute(
++                "INSERT INTO replay_keys VALUES (?, ?)", ("old" * 1, 1)
++            )
++            conn.commit()
++            conn.close()
++
++            store = SQLiteReplayStore(db)
++            # New composite-PK semantics must hold against the legacy file.
++            self.assertTrue(store.reserve("sess-1", "msg-1"))
++            self.assertFalse(store.reserve("sess-1", "msg-1"))
++            self.assertTrue(store.reserve("sess-2", "msg-1"))
++
++
++if __name__ == "__main__":
++    unittest.main()
+-- 
+2.39.5
+

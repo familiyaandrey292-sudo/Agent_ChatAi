@@ -2746,7 +2746,7 @@ function ensureCommandPanel() {
                 "system-ui, sans-serif",
             fontSize: "13px",
             lineHeight: "1.35",
-            userSelect: "none",
+            userSelect: "text",
             resize: "none",
             cursor: "default"
         }
@@ -2959,6 +2959,13 @@ function ensureCommandPanel() {
         currentText
     );
 
+    current.title = "";
+    current.addEventListener("dblclick", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        copyCommandPanelToClipboard();
+    });
+
     const historyTitle =
         document.createElement("div");
 
@@ -2990,7 +2997,9 @@ function ensureCommandPanel() {
             overflowY: "auto",
             height:
                 "calc(100% - 76px)",
-            paddingRight: "3px"
+            paddingRight: "3px",
+            userSelect: "text",
+            cursor: "text"
         }
     );
 
@@ -3004,7 +3013,18 @@ Object.assign(closeButton.style, { width: "24px", height: "24px", padding: "0", 
 closeButton.className = "agentChataiCommandPanelClose";
 closeButton.addEventListener("click", (event) => { event.preventDefault(); event.stopPropagation(); closeCommandPanel(); });
 
+const copyButton = document.createElement("button");
+
+copyButton.type = "button";
+copyButton.textContent = "⧉";
+copyButton.setAttribute("aria-label", "Скопировать историю Agent ChatAI в буфер обмена");
+copyButton.title = "Скопировать всё в буфер обмена";
+Object.assign(copyButton.style, { width: "24px", height: "24px", padding: "0", margin: "0 0 0 4px", border: "0", borderRadius: "6px", background: "transparent", color: "inherit", cursor: "pointer", fontSize: "15px", lineHeight: "20px", flex: "0 0 auto" });
+copyButton.className = "agentChataiCommandPanelCopy";
+copyButton.addEventListener("click", (event) => { event.preventDefault(); event.stopPropagation(); copyCommandPanelToClipboard(); });
+
 header.appendChild(themeButton);
+    header.appendChild(copyButton);
     header.appendChild(closeButton);
 
     panel.appendChild(header);
@@ -3600,6 +3620,82 @@ header.appendChild(themeButton);
     return panel;
 }
 
+function formatCommandHistoryLine(item) {
+    const meta =
+        commandStatusMeta(item.state);
+
+    return (
+        `${item.time || ""} ${item.action || "command"} — ${meta.label}` +
+        (item.detail ? ` — ${item.detail}` : "")
+    );
+}
+
+function buildCommandPanelClipboardText() {
+    const lines = [];
+
+    if (commandPanelCurrentText && commandPanelCurrentText.textContent) {
+        lines.push(`Текущий статус: ${commandPanelCurrentText.textContent}`);
+        lines.push("");
+    }
+
+    for (const item of loadCommandHistory()) {
+        lines.push(formatCommandHistoryLine(item));
+    }
+
+    return lines.join("\n");
+}
+
+function copyCommandPanelToClipboard() {
+    ensureCommandPanel();
+
+    const text =
+        buildCommandPanelClipboardText();
+
+    const fallbackCopy = () => {
+        try {
+            const textarea =
+                document.createElement("textarea");
+
+            textarea.value = text;
+            textarea.style.position = "fixed";
+            textarea.style.opacity = "0";
+            textarea.setAttribute("readonly", "");
+
+            document.body.appendChild(textarea);
+            textarea.select();
+            textarea.setSelectionRange(0, textarea.value.length);
+
+            const ok =
+                document.execCommand("copy");
+
+            document.body.removeChild(textarea);
+
+            return Promise.resolve(ok);
+        } catch (_) {
+            return Promise.resolve(false);
+        }
+    };
+
+    const done = (ok) => {
+        if (commandPanelCurrentText) {
+            commandPanelCurrentText.textContent = ok
+                ? "Скопировано в буфер обмена"
+                : "Не удалось скопировать";
+        }
+
+        setTimeout(() => renderCommandHistory(), 1500);
+    };
+
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(
+            () => done(true),
+            () => fallbackCopy().then(done)
+        );
+    } else {
+        fallbackCopy().then(done);
+    }
+}
+
 function renderCommandHistory() {
     ensureCommandPanel();
 
@@ -3627,11 +3723,12 @@ function renderCommandHistory() {
                 color: meta.color,
                 padding: "4px 2px",
                 borderBottom: "1px solid var(--agx-panel-divider)",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap"
+                userSelect: "text",
+                cursor: "text"
             }
         );
+
+        row.title = formatCommandHistoryLine(item);
 
         const time =
             document.createElement("span");
@@ -3703,6 +3800,15 @@ function setCommandStatus(
 
         commandPanelCurrentText.style.color =
             meta.color;
+
+        const currentRow =
+            commandPanelCurrentText.parentElement;
+
+        if (currentRow) {
+            currentRow.title =
+                commandPanelCurrentText.textContent +
+                "  (двойной клик — копировать в буфер)";
+        }
     }
 
     document.documentElement.dataset

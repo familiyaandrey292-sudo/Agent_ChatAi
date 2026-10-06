@@ -74,6 +74,21 @@ class TestBrowserChatBridgeStatic(unittest.TestCase):
             self.assertIn(field, self.text)
         self.assertIn("integrity-тег", self.text)
 
+    def test_command_panel_text_is_selectable_and_copyable(self):
+        # panel and history rows must allow text selection (userSelect: "text")
+        self.assertEqual(
+            self.text.count('userSelect: "text"'), 3
+        )
+        # copy button + one-click clipboard export of the whole log
+        self.assertIn("agentChataiCommandPanelCopy", self.text)
+        self.assertIn("function copyCommandPanelToClipboard(", self.text)
+        self.assertIn("function buildCommandPanelClipboardText(", self.text)
+        self.assertIn("navigator.clipboard.writeText(text)", self.text)
+        # fallback for non-secure contexts
+        self.assertIn('document.execCommand("copy")', self.text)
+        # double-click on current status row copies as well
+        self.assertIn('current.addEventListener("dblclick"', self.text)
+
 
 if __name__ == "__main__":
     unittest.main()
