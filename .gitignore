@@ -19,4 +19,9 @@ __pycache__/
 
 # System/Environment files
 .DS_Store
-Thumbs.db
+Thumbs.db__pycache__/
+*.pyc
+tests/test_result_signing_key.pem
+*.b64
+transfer.bundle
+bridge-sync.bundle
