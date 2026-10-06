@@ -67,6 +67,12 @@ class PairingManager:
                 self._pairing_code = secrets.token_urlsafe(18)
             return self._pairing_code
 
+    def reset_pairing_code(self) -> str:
+        """Force a fresh pairing code (used to recover after state loss)."""
+        with self._lock:
+            self._pairing_code = secrets.token_urlsafe(18)
+            return self._pairing_code
+
     def pair(self, *, code: str, public_key_spki_b64: str) -> None:
         with self._lock:
             if (

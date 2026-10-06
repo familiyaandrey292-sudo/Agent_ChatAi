@@ -216,6 +216,26 @@ class GatewayHTTPHandler(BaseHTTPRequestHandler):
             )
             return
 
+        if self.path == "/v1/pairing-code":
+            if self.pairing is None:
+                self._send_json(
+                    503,
+                    {"error": "pairing_not_initialized"},
+                )
+                return
+            if not self.pairing.paired:
+                code = self.pairing.ensure_pairing_code()
+            else:
+                code = self.pairing.reset_pairing_code()
+            self._send_json(
+                200,
+                {
+                    "code": code,
+                    "paired": self.pairing.paired,
+                },
+            )
+            return
+
         self._send_json(
             404,
             {"error": "not_found"},

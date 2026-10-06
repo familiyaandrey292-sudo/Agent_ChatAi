@@ -1,1 +1,37 @@
-(empty)
+# Compiled and build artifacts
+__pycache__/
+*.pyc
+
+# Logs and temp files
+*.log
+*.tmp
+
+# Environment
+.env
+.env.local
+*.env.*
+
+# Editors/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# System/Environment files
+.DS_Store
+Thumbs.db
+
+# Local transfer artifacts
+tests/test_result_signing_key.pem
+*.b64
+transfer.bundle
+bridge-sync.bundle
+
+# Gateway runtime state (keys, replay DB, audit) — never commit, never clean
+gateway/result_signing_key.pem
+gateway/browser_auth_public.pem
+gateway/replay.sqlite3
+gateway/audit.jsonl
+gateway/*.sqlite3-journal
+gateway/*.sqlite3-wal
+gateway/*.sqlite3-shm
