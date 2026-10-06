@@ -149,31 +149,70 @@ if ($listening -and $health -and $health.browser_auth) {
     }
 }
 
-# Persistent state
-if (Test-Path ".\gateway\result_signing_key.pem") {
-    Pass "Result signing key" "present"
-}
-else {
-    Fail "Result signing key" "missing"
+# Persistent state — resolve the SAME paths the running gateway uses.
+# The gateway stores keys next to gateway/server.py unless AGX_* env vars
+# override them; a scheduled task may run from a different working dir, so
+# never hardcode .\gateway\ here.
+# The gateway resolves key paths relative to gateway/server.py itself, so
+# the repo's gateway folder is the canonical state dir unless AGX_* vars say
+# otherwise. If a gateway process is running, also scan its command line for
+# AGX_* overrides.
+$gatewayStateDir = (Resolve-Path (Join-Path $PSScriptRoot "..\gateway")).Path
+try {
+    $gwCmd = $null
+    $listeners = Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue
+    if ($listeners) {
+        $ownerPid = [int]($listeners | Select-Object -First 1).OwningProcess
+        $gwCmd = (Get-CimInstance Win32_Process -Filter "ProcessId=$ownerPid").CommandLine
+    }
+    if (-not $gwCmd) {
+        $procMatch = Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+            Where-Object { $_.CommandLine -match 'gateway\.server|gateway/server' } | Select-Object -First 1
+        if ($procMatch) { $gwCmd = $procMatch.CommandLine }
+    }
+    if ($gwCmd) {
+        foreach ($pair in ([regex]'AGX_(REPLAY_DB|RESULT_SIGNING_KEY|BROWSER_PUBLIC_KEY|AUDIT_LOG)=([^ ;]+)').Matches($gwCmd)) {
+            # env assignments on the command line are recorded but not applied
+            # here; server.py reads real env vars via Get-StateFile below.
+        }
+    }
+} catch { }
+
+function Get-StateFile([string]$envName, [string]$fileName) {
+    $p = [Environment]::GetEnvironmentVariable($envName, "User")
+    if (-not $p) { $p = [Environment]::GetEnvironmentVariable($envName, "Machine") }
+    if ($p) { return $p }
+    return (Join-Path $gatewayStateDir $fileName)
 }
 
-if (Test-Path ".\gateway\browser_auth_public.pem") {
-    Pass "Browser auth key" "present"
+$keyPath = Get-StateFile "AGX_RESULT_SIGNING_KEY" "result_signing_key.pem"
+$authPath = Get-StateFile "AGX_BROWSER_PUBLIC_KEY" "browser_auth_public.pem"
+$dbPath = Get-StateFile "AGX_REPLAY_DB" "replay.sqlite3"
+
+if (Test-Path $keyPath) {
+    Pass "Result signing key" ("present: " + $keyPath)
 }
 else {
-    Fail "Browser auth key" "missing"
+    Fail "Result signing key" ("missing: " + $keyPath)
 }
 
-if (Test-Path ".\gateway\replay.sqlite3") {
-    Pass "Replay database" "present"
+if (Test-Path $authPath) {
+    Pass "Browser auth key" ("present: " + $authPath)
 }
 else {
-    Fail "Replay database" "missing"
+    Fail "Browser auth key" ("missing: " + $authPath)
+}
+
+if (Test-Path $dbPath) {
+    Pass "Replay database" ("present: " + $dbPath)
+}
+else {
+    Fail "Replay database" ("missing: " + $dbPath)
 }
 
 
 # Audit log
-$auditPath = ".\gateway\audit.jsonl"
+$auditPath = Get-StateFile "AGX_AUDIT_LOG" "audit.jsonl"
 
 if (-not (Test-Path $auditPath)) {
     Pass "Audit log" "not created yet"

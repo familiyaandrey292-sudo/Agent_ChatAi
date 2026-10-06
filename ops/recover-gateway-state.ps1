@@ -10,10 +10,29 @@ Write-Host "=== Agent ChatAI state recovery ===" -ForegroundColor Cyan
 git fetch origin
 git reset --hard origin/main
 
-# 2) Restart Gateway — recreates result_signing_key.pem and replay.sqlite3 on startup.
+# 2) HARD STOP the real gateway process. Stop-ScheduledTask alone does NOT kill
+#    an already-running process, and a stale python.exe keeps holding port 8765
+#    with OLD code (no /v1/pairing-code) — which caused "not_found" errors.
+$oldPids = @()
+$listeners = Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue
+foreach ($l in $listeners) { if ($l.OwningProcess) { $oldPids += [int]$l.OwningProcess } }
+$fallback = Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+    Where-Object { $_.CommandLine -match 'gateway\.server|gateway/server' }
+foreach ($p in $fallback) { if ($p.ProcessId -notin $oldPids) { $oldPids += [int]$p.ProcessId } }
+foreach ($pid2 in $oldPids) {
+    Write-Host ("Killing stale gateway PID {0}" -f $pid2) -ForegroundColor Yellow
+    Stop-Process -Id $pid2 -Force -ErrorAction SilentlyContinue
+}
 Stop-ScheduledTask -TaskName "Agent ChatAI Gateway" -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 2
-Start-ScheduledTask -TaskName "Agent ChatAI Gateway"
+
+# Prefer the project venv interpreter (has pytest/cryptography); fall back to python on PATH.
+$pyExe = "python"
+if (Test-Path ".\.venv\Scripts\python.exe") { $pyExe = ".\.venv\Scripts\python.exe" }
+& $pyExe -m pip install -q -r requirements.txt -r requirements-dev.txt
+
+# Start via ops script (runs from repo root, correct interpreter).
+powershell -ExecutionPolicy Bypass -File .\ops\start-gateway.ps1
 Start-Sleep -Seconds 3
 
 $health = Invoke-RestMethod http://127.0.0.1:8765/v1/health
@@ -32,8 +51,8 @@ foreach ($f in @("gateway\result_signing_key.pem", "gateway\browser_auth_public.
     else              { Write-Host "MISS $f" -ForegroundColor Yellow }
 }
 
-# 5) Full verification.
-python -m pytest -q
+# 5) Full verification (same interpreter as the gateway).
+& $pyExe -m pytest -q
 .\ops\doctor.ps1
 
 Write-Host ""
