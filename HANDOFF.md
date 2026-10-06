@@ -129,6 +129,17 @@ Remaining for stage closure — live manual E2E in Brave/Chromium with a real te
 - the test AI must generate AGX1:C into the rendered chat (no manual paste);
 - verify execution succeeds, signed RESULT is inserted and auto-submitted;
 - verify no self-reprocessing, no duplicate execution, no command/result loop.
+
+Live E2E attempt #1 (user report): the parallel-chat AI emitted an AGX1:C that was silently ignored by the Bridge. Root cause analysis (verified by decoding the container):
+- payload had only session_id/message_id/action/args — missing required timestamp and ttl (old pre-5A schema);
+- message_id was "msg_002" instead of 32 hex chars;
+- integrity tag was 16 hex chars instead of 64 and did not match SHA-256("C:"+payload) at all (hallucinated);
+- JSON was non-canonical (chat field order, not sorted keys).
+Because the tag length failed content.js AGX_COMMAND_PATTERN ({64}), extraction never happened: no Gateway request, no AGX1:R, no visible error. This matches E2E failure-mode coverage in tests/test_e2e_ai_command.py.
+
+Process issue found and fixed: two AI handoff docs existed — root AI_CHAT_HANDOFF.md (Russian, OLD 4-field schema, "<integrity>" wording) and chat_handoff/HANDOFF.md (English, current 6-field schema). The parallel chat followed AI_CHAT_HANDOFF.md literally and produced a valid-per-that-doc but rejected command. AI_CHAT_HANDOFF.md has been updated to the current contract (timestamp/ttl, 32-hex message_id, full 64-hex sha256 over "C:"+b64url, canonical sorted-key JSON). Action item: keep a single source of truth for AI chat rules or explicitly deprecate one of the files.
+
+Usability follow-up (open): containers that fail the envelope regex are invisible to the user. Consider a heuristic warning in content.js (e.g., text matching AGX1:C:[A-Za-z0-9_-]+:[A-Fa-f0-9]{8,63}) shown as a status notice so malformed AI commands surface instead of being silently dropped.
 ## 5. Browser Bridge current next step
 
 The intended final behavior is:
