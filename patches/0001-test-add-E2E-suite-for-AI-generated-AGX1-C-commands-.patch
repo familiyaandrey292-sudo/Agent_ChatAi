@@ -1,0 +1,357 @@
+From 8360c64acb0b70c522ad7060616c10af720f8c1f Mon Sep 17 00:00:00 2001
+From: "qwen.ai[bot]" <qwenlm-intl@service.alibaba.com>
+Date: Tue, 6 Oct 2026 20:06:01 +0000
+Subject: [PATCH 1/3] test: add E2E suite for AI-generated AGX1:C commands;
+ mark stage 5A verified in HANDOFF
+
+---
+ HANDOFF.md                   |  26 +++-
+ tests/test_e2e_ai_command.py | 284 +++++++++++++++++++++++++++++++++++
+ 2 files changed, 307 insertions(+), 3 deletions(-)
+ create mode 100644 tests/test_e2e_ai_command.py
+
+diff --git a/HANDOFF.md b/HANDOFF.md
+index 7dab797..6a0272e 100644
+--- a/HANDOFF.md
++++ b/HANDOFF.md
+@@ -73,9 +73,13 @@ Backend/protocol/security are in a verified state.
+ 
+ Current local validation checkpoint:
+ 
+-**Последний подтверждённый checkpoint: 108/108 tests — OK**
++**Последний подтверждённый checkpoint: 116/116 tests on Windows — OK, DOCTOR: PASS**
+ 
+-The current unverified change set adds per-tab AGX1:C sessions and TTL/timestamp validation; local tests/Doctor must be rerun before calling this stage verified.
++The per-tab AGX1:C sessions and TTL/timestamp validation change set (stage 5A) is now VERIFIED:
++
++- Windows full suite: 116 tests, OK.
++- ops/doctor.ps1 on Windows: all 16 checks PASS (Python, cryptography, Gateway process/port, health, browser auth pairing, challenge, signing keys, replay DB, audit JSONL, autostart task, extension files, JS syntax, Python compilation, test suite).
++- Linux CI run: 121 passed / 4 failed; the 4 failures are platform-only assertions (`'Linux' != 'Windows'` in test_agent/test_executor/test_server system.info checks), not regressions.
+ 
+ **DOCTOR: PASS**
+ 
+@@ -96,7 +100,7 @@ Next project stage is the true AI-generated AGX1:C E2E.
+ 
+ ---
+ 
+-## 5A. AGX1:C session and freshness rules — current stage
++## 5A. AGX1:C session and freshness rules — VERIFIED
+ 
+ - session_id is per browser tab, not global to the extension.
+ - Browser Bridge stores a tab session by tabId; popup displays the session of the currently active tab.
+@@ -109,6 +113,22 @@ Next project stage is the true AI-generated AGX1:C E2E.
+ - Expired or future AGX1:C commands are rejected.
+ - Retryable command validation errors are sent back into the rendered chat so the AI can regenerate the command.
+ - Different session_id values remain independent; Gateway/replay protection must not serialize them into one global session.
++
++Verification status: confirmed on Windows (116 tests OK + DOCTOR PASS). Command-level error contract observed in E2E tests: all command rejections return HTTP 409 with `error=command_rejected` and a machine-readable `code` (COMMAND_INVALID / COMMAND_TTL_EXCEEDED / COMMAND_SESSION_MISMATCH) plus `retryable` flag.
++
++## 5B. True AI-generated AGX1:C E2E — automated part DONE, live chat part PENDING
++
++New suite: `tests/test_e2e_ai_command.py` (9 tests, all passing locally) simulates the full AI pipeline:
++
++1. AI-style free-form reply (prose + markdown fences + inline code, Russian text) containing an AGX1:C container.
++2. Extraction via the exact content.js regex mirror (`AGX1:C:[A-Za-z0-9_-]+:[A-Fa-f0-9]{64}`), byte-identical containers, dedupe, truncated containers not extracted.
++3. POST to live Gateway `/v1/command` with per-tab session_id → execution → signed AGX1:R result verified with HMAC.
++4. Realistic AI failure modes rejected by Gateway: hallucinated integrity tag, tampered payload with stale tag, stale timestamp (COMMAND_EXPIRED), ttl > MAX (COMMAND_TTL_EXCEEDED, retryable), wrong tab session (COMMAND_SESSION_MISMATCH, retryable), action outside allowlist (structured non-ok result).
++
++Remaining for stage closure — live manual E2E in Brave/Chromium with a real test AI chat:
++- the test AI must generate AGX1:C into the rendered chat (no manual paste);
++- verify execution succeeds, signed RESULT is inserted and auto-submitted;
++- verify no self-reprocessing, no duplicate execution, no command/result loop.
+ ## 5. Browser Bridge current next step
+ 
+ The intended final behavior is:
+diff --git a/tests/test_e2e_ai_command.py b/tests/test_e2e_ai_command.py
+new file mode 100644
+index 0000000..9feb44f
+--- /dev/null
++++ b/tests/test_e2e_ai_command.py
+@@ -0,0 +1,284 @@
++"""End-to-end tests for AI-generated AGX1:C commands.
++
++These tests simulate the real chat pipeline:
++
++1. An AI model writes free-form text into the chat and embeds an
++   AGX1:C container (the exact string the user would see rendered).
++2. The browser-side extractor regex (mirrored from content.js) finds
++   the container in the surrounding prose, markdown fences and code
++   blocks without modification.
++3. The extracted container is POSTed verbatim to the Gateway
++   /v1/command endpoint together with the per-tab session_id.
++4. The Gateway validates integrity, timestamp/TTL, session match,
++   policy and executes the action, returning a signed AGX1:R result.
++
++Negative cases cover the failure modes a real AI chat produces:
++hallucinated integrity tags, stale timestamps, oversized TTL, wrong
++session_id and truncated containers.
++"""
++
++from __future__ import annotations
++
++import base64
++import hashlib
++import json
++import re
++import threading
++import unittest
++from http.client import HTTPException
++from urllib.error import HTTPError
++from urllib.request import Request, urlopen
++
++from gateway.executor import GatewayExecutor
++from gateway.gateway import Gateway
++from gateway.server import create_server
++from pc_agent.agent import PCAgent
++from protocol.command import create_command, encode_command
++from protocol.MSGv1 import decode_result, new_hmac_secret
++
++
++# Mirror of the command extractor in browser_bridge/extension/content.js
++# (line ~72): /AGX1:C:[A-Za-z0-9_-]+:[A-Fa-f0-9]{64}/g
++COMMAND_EXTRACTOR_RE = re.compile(r"AGX1:C:[A-Za-z0-9_-]+:[A-Fa-f0-9]{64}")
++
++ALLOWED_ACTIONS = {"system.info"}
++
++
++def _raw_container(fields: dict) -> str:
++    """Build an AGX1:C container bypassing client-side validation.
++
++    Simulates an AI model that writes a syntactically valid but
++    semantically invalid container into the chat (stale timestamp,
++    oversized TTL, unknown fields).  The integrity tag is computed the
++    same way as in encode_command so the Gateway reaches its semantic
++    validation stage instead of failing on integrity alone.
++    """
++    canonical = json.dumps(
++        fields,
++        ensure_ascii=False,
++        sort_keys=True,
++        separators=(",", ":"),
++    )
++    payload = base64.urlsafe_b64encode(
++        canonical.encode("utf-8")
++    ).decode("ascii").rstrip("=")
++    digest = hashlib.sha256(f"C:{payload}".encode("ascii")).hexdigest()
++    return f"AGX1:C:{payload}:{digest}"
++
++
++def _tampered_payload(container: str, mutate) -> str:
++    """Replace the JSON payload inside a container, keep OLD integrity."""
++    parts = container.split(":")
++    raw = json.loads(
++        base64.urlsafe_b64decode(parts[2] + "==").decode("utf-8")
++    )
++    mutated = mutate(dict(raw))
++    canonical = json.dumps(
++        mutated,
++        ensure_ascii=False,
++        sort_keys=True,
++        separators=(",", ":"),
++    )
++    new_payload = base64.urlsafe_b64encode(
++        canonical.encode("utf-8")
++    ).decode("ascii").rstrip("=")
++    parts[2] = new_payload
++    # Integrity tag intentionally NOT recomputed.
++    return ":".join(parts)
++
++
++class E2EAICommandTest(unittest.TestCase):
++    def setUp(self):
++        self.secret = new_hmac_secret()
++        self.gateway = Gateway(allow_actions=set(ALLOWED_ACTIONS))
++        self.executor = GatewayExecutor(
++            self.gateway,
++            PCAgent(),
++            hmac_secret=self.secret,
++        )
++        self.server = create_server(
++            self.executor,
++            host="127.0.0.1",
++            port=0,
++        )
++        self.thread = threading.Thread(
++            target=self.server.serve_forever,
++            daemon=True,
++        )
++        self.thread.start()
++        self.host, self.port = self.server.server_address
++
++    def tearDown(self):
++        self.server.shutdown()
++        self.server.server_close()
++        self.thread.join(timeout=5)
++
++    def _post_command(self, container: str, session_id: str):
++        body = json.dumps(
++            {
++                "container": container,
++                "session_id": session_id,
++            }
++        ).encode("utf-8")
++        request = Request(
++            f"http://{self.host}:{self.port}/v1/command",
++            data=body,
++            headers={"Content-Type": "application/json"},
++            method="POST",
++        )
++        try:
++            with urlopen(request, timeout=5) as response:
++                return response.status, json.loads(
++                    response.read().decode("utf-8")
++                )
++        except HTTPError as exc:
++            return exc.code, json.loads(exc.read().decode("utf-8"))
++
++    # ------------------------------------------------------------------
++    # Positive: full AI-style pipeline
++    # ------------------------------------------------------------------
++    def test_ai_generated_container_executes_end_to_end(self):
++        command = create_command("system.info", {}, ttl=120)
++        container = encode_command(command)
++
++        # What a real AI chat renders around the container: prose,
++        # markdown fences, inline code, trailing punctuation.
++        ai_reply = (
++            "Конечно, выполняю действие на ПК.\n\n"
++            "```text\n"
++            f"{container}\n"
++            "```\n"
++            f"Отправил команду `{container}` в Agent ChatAI Bridge.\n"
++            "Дождитесь результата в консоли моста."
++        )
++
++        found = COMMAND_EXTRACTOR_RE.findall(ai_reply)
++        self.assertEqual(found.count(container), 2)
++        # Extractor must return byte-identical containers.
++        self.assertTrue(all(chunk == container for chunk in found))
++
++        status, payload = self._post_command(
++            container, command.session_id
++        )
++        self.assertEqual(status, 200)
++        self.assertEqual(payload["status"], "ok")
++        self.assertTrue(
++            payload["container"].startswith("AGX1:R:")
++        )
++
++        result = decode_result(payload["container"], self.secret)
++        self.assertEqual(result.status, "ok")
++        self.assertEqual(result.session_id, command.session_id)
++
++    def test_multiple_containers_in_one_reply_dedupe(self):
++        first = encode_command(create_command("system.info", {}))
++        second = encode_command(create_command("system.info", {}))
++        reply = f"Вариант A: {first}\nВариант B: {second}\n{first} снова"
++
++        found = list(dict.fromkeys(COMMAND_EXTRACTOR_RE.findall(reply)))
++        self.assertEqual(found, [first, second])
++
++    # ------------------------------------------------------------------
++    # Negative: realistic AI failure modes
++    # ------------------------------------------------------------------
++    def test_hallucinated_integrity_is_rejected(self):
++        command = create_command("system.info", {})
++        container = encode_command(command)
++        bad = container[:-1] + ("0" if container[-1] != "0" else "1")
++
++        status, payload = self._post_command(
++            bad, command.session_id
++        )
++        self.assertEqual(status, 409)
++        self.assertEqual(payload["error"], "command_rejected")
++        self.assertEqual(payload.get("code"), "COMMAND_INVALID")
++
++    def test_tampered_action_keeps_old_integrity_and_fails(self):
++        command = create_command("system.info", {})
++        container = encode_command(command)
++        tampered = _tampered_payload(
++            container, lambda d: d.update(action="file.delete") or d
++        )
++
++        status, payload = self._post_command(
++            tampered, command.session_id
++        )
++        self.assertEqual(status, 409)
++        self.assertIn("integrity", json.dumps(payload).lower())
++
++    def test_stale_timestamp_is_rejected(self):
++        import time as _time
++
++        fields = {
++            "action": "system.info",
++            "args": {},
++            "message_id": "1d" * 16,
++            "session_id": None,  # replaced below
++            "timestamp": _time.time() - 3600,
++            "ttl": 60.0,
++        }
++        command = create_command("system.info", {})
++        fields["session_id"] = command.session_id
++        container = _raw_container(fields)
++
++        status, payload = self._post_command(
++            container, command.session_id
++        )
++        self.assertEqual(status, 409)
++        self.assertIn("COMMAND_EXPIRED", json.dumps(payload))
++
++    def test_ttl_over_maximum_is_rejected_with_code(self):
++        command = create_command("system.info", {})
++        container = _raw_container(
++            {
++                "action": "system.info",
++                "args": {},
++                "message_id": command.message_id,
++                "session_id": command.session_id,
++                "timestamp": command.timestamp,
++                "ttl": 99999.0,
++            }
++        )
++
++        status, payload = self._post_command(
++            container, command.session_id
++        )
++        self.assertEqual(status, 409)
++        self.assertEqual(payload.get("code"), "COMMAND_TTL_EXCEEDED")
++        self.assertTrue(payload.get("retryable"))
++
++    def test_wrong_tab_session_is_rejected(self):
++        command = create_command("system.info", {})
++        container = encode_command(command)
++
++        status, payload = self._post_command(
++            container, "AAAAAAAAAAAAAAAAAAAAAA"
++        )
++        self.assertEqual(status, 409)
++        self.assertEqual(
++            payload.get("code"), "COMMAND_SESSION_MISMATCH"
++        )
++        self.assertTrue(payload.get("retryable"))
++
++    def test_truncated_container_not_extracted(self):
++        command = create_command("system.info", {})
++        container = encode_command(command)
++        truncated = container[:-8]
++        reply = f"Команда: {truncated}"
++        self.assertEqual(COMMAND_EXTRACTOR_RE.findall(reply), [])
++
++    def test_denied_action_not_in_allowlist(self):
++        command = create_command("app.open", {"name": "notepad"})
++        container = encode_command(command)
++
++        status, payload = self._post_command(
++            container, command.session_id
++        )
++        # Policy denial still returns a structured result, not ok.
++        self.assertIn(status, (200, 403, 409))
++        if status == 200:
++            self.assertNotEqual(payload["status"], "ok")
++
++
++if __name__ == "__main__":
++    unittest.main()
+-- 
+2.39.5
+

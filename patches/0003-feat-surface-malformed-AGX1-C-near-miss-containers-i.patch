@@ -1,0 +1,183 @@
+From cd1e6868a4703731abaaf6f952955c6c2a7fe9a5 Mon Sep 17 00:00:00 2001
+From: "qwen.ai[bot]" <qwenlm-intl@service.alibaba.com>
+Date: Tue, 6 Oct 2026 20:22:41 +0000
+Subject: [PATCH 3/3] feat: surface malformed AGX1:C near-miss containers in
+ content.js instead of silently ignoring; add static tests; update HANDOFF
+
+---
+ HANDOFF.md                               |  2 +-
+ browser_bridge/extension/content.js      | 97 ++++++++++++++++++++++++
+ tests/test_browser_chat_bridge_static.py | 21 +++++
+ 3 files changed, 119 insertions(+), 1 deletion(-)
+
+diff --git a/HANDOFF.md b/HANDOFF.md
+index aab2bb3..58a9e57 100644
+--- a/HANDOFF.md
++++ b/HANDOFF.md
+@@ -139,7 +139,7 @@ Because the tag length failed content.js AGX_COMMAND_PATTERN ({64}), extraction
+ 
+ Process issue found and fixed: two AI handoff docs existed — root AI_CHAT_HANDOFF.md (Russian, OLD 4-field schema, "<integrity>" wording) and chat_handoff/HANDOFF.md (English, current 6-field schema). The parallel chat followed AI_CHAT_HANDOFF.md literally and produced a valid-per-that-doc but rejected command. AI_CHAT_HANDOFF.md has been updated to the current contract (timestamp/ttl, 32-hex message_id, full 64-hex sha256 over "C:"+b64url, canonical sorted-key JSON). Action item: keep a single source of truth for AI chat rules or explicitly deprecate one of the files.
+ 
+-Usability follow-up (open): containers that fail the envelope regex are invisible to the user. Consider a heuristic warning in content.js (e.g., text matching AGX1:C:[A-Za-z0-9_-]+:[A-Fa-f0-9]{8,63}) shown as a status notice so malformed AI commands surface instead of being silently dropped.
++Usability follow-up (DONE): containers that fail the envelope regex are now surfaced instead of being silently dropped. content.js gained AGX_COMMAND_NEAR_MISS_PATTERN (AGX1:C with a 1-63 hex tag), reportNearMissCommands() and describeNearMissCommand(): on a near-miss the command panel shows an error status listing concrete contract violations (missing timestamp/ttl, non-32-hex message_id, short integrity tag) plus a hint to regenerate per AI_CHAT_HANDOFF.md; dataset flag agentChataiNearMiss=1 for testability. Valid 64-hex containers never trigger the warning (regex verified against live attempt #1 token: strict=0 hits, near=1 hit with correct diagnosis). Deduped via lastNearMissWarning. Covered by two new static tests.
+ ## 5. Browser Bridge current next step
+ 
+ The intended final behavior is:
+diff --git a/browser_bridge/extension/content.js b/browser_bridge/extension/content.js
+index 3ffd1bb..40eb982 100644
+--- a/browser_bridge/extension/content.js
++++ b/browser_bridge/extension/content.js
+@@ -70,7 +70,12 @@ const AGX_ACTION_PATTERN =
+ 
+ const AGX_COMMAND_PATTERN =
+     /AGX1:C:[A-Za-z0-9_-]+:[A-Fa-f0-9]{64}/g;
++
++const AGX_COMMAND_NEAR_MISS_PATTERN =
++    /AGX1:C:[A-Za-z0-9_-]*:[A-Fa-f0-9]{1,63}\b/g;
++
+ let lastCommandContainer = null;
++let lastNearMissWarning = null;
+ let lastContainer = null;
+ let confirmationToken = null;
+ let confirmationBar = null;
+@@ -1543,6 +1548,96 @@ function extractCommandContainers(text) {
+         text.match(AGX_COMMAND_PATTERN) || []
+     )];
+ }
++
++function describeNearMissCommand(container) {
++    const parts = String(container).split(":");
++    const encoded = parts[2] || "";
++    const tag = parts[3] || "";
++
++    let payload = null;
++
++    try {
++        const normalized =
++            encoded.replace(/-/g, "+").replace(/_/g, "/");
++        const padded =
++            normalized +
++            "=".repeat((4 - (normalized.length % 4)) % 4);
++        payload = JSON.parse(atob(padded));
++    } catch (_) {
++        payload = null;
++    }
++
++    const problems = [];
++
++    if (tag.length !== 64) {
++        problems.push(
++            `integrity-тег ${tag.length} симв. вместо 64`
++        );
++    }
++
++    if (!payload || typeof payload !== "object") {
++        problems.push("payload не декодируется как JSON");
++        return problems.join("; ");
++    }
++
++    for (const field of [
++        "session_id",
++        "message_id",
++        "action",
++        "args",
++        "timestamp",
++        "ttl"
++    ]) {
++        if (!(field in payload)) {
++            problems.push(`нет поля ${field}`);
++        }
++    }
++
++    if (
++        typeof payload.message_id === "string" &&
++        !/^[0-9a-f]{32}$/i.test(payload.message_id)
++    ) {
++        problems.push(
++            `message_id "${payload.message_id}" — ` +
++            "не 32 hex-символа"
++        );
++    }
++
++    return problems.join("; ");
++}
++
++function reportNearMissCommands(text) {
++    if (typeof text !== "string" || !text.length) {
++        return;
++    }
++
++    const candidates = [...new Set(
++        text.match(AGX_COMMAND_NEAR_MISS_PATTERN) || []
++    )];
++
++    for (const container of candidates) {
++        if (container === lastNearMissWarning) {
++            continue;
++        }
++
++        lastNearMissWarning = container;
++
++        const detail =
++            describeNearMissCommand(container);
++
++        setCommandStatus(
++            "malformed command",
++            "error",
++            `Команда не распознана Bridge и не отправлена` +
++            (detail ? `: ${detail}` : "") +
++            ". Попросите ИИ перегенерировать AGX1:C по AI_CHAT_HANDOFF.md.",
++            null
++        );
++
++        document.documentElement.dataset
++            .agentChataiNearMiss = "1";
++    }
++}
+ function removeConfirmationBar() {
+     if (confirmationBar) {
+         confirmationBar.remove();
+@@ -3831,6 +3926,8 @@ function inspectDocument() {
+         document.documentElement?.innerText ||
+         "";
+ 
++    reportNearMissCommands(text);
++
+     reportContainers(
+         extractActionContainers(text)
+     );
+diff --git a/tests/test_browser_chat_bridge_static.py b/tests/test_browser_chat_bridge_static.py
+index e62aa4c..54604a4 100644
+--- a/tests/test_browser_chat_bridge_static.py
++++ b/tests/test_browser_chat_bridge_static.py
+@@ -53,6 +53,27 @@ class TestBrowserChatBridgeStatic(unittest.TestCase):
+         self.assertIn("markBridgeGeneratedComposer(", self.text)
+         self.assertIn("clearBridgeGeneratedComposer(", self.text)
+ 
++    def test_near_miss_command_is_surfaced_not_silently_ignored(self):
++        self.assertIn("AGX_COMMAND_NEAR_MISS_PATTERN", self.text)
++        self.assertIn("function reportNearMissCommands(", self.text)
++        self.assertIn("reportNearMissCommands(text)", self.text)
++        self.assertIn("agentChataiNearMiss", self.text)
++        # near-miss detection must not fire on valid containers:
++        # the short-hex {1,63} alternative is terminated by \b and the
++        # strict pattern consumes full 64-hex tags first.
++        self.assertIn("[A-Fa-f0-9]{1,63}\\b", self.text)
++
++    def test_near_miss_diagnosis_names_contract_fields(self):
++        self.assertIn("function describeNearMissCommand(", self.text)
++        for field in (
++            "session_id",
++            "message_id",
++            "timestamp",
++            "ttl",
++        ):
++            self.assertIn(field, self.text)
++        self.assertIn("integrity-тег", self.text)
++
+ 
+ if __name__ == "__main__":
+     unittest.main()
+-- 
+2.39.5
+

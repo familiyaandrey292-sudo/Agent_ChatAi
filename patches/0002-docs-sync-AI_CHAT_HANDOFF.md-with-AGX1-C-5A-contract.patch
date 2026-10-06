@@ -1,0 +1,90 @@
+From e9a44ebd509b92c10f8cb657c0b27ec67609c38e Mon Sep 17 00:00:00 2001
+From: "qwen.ai[bot]" <qwenlm-intl@service.alibaba.com>
+Date: Tue, 6 Oct 2026 20:18:34 +0000
+Subject: [PATCH 2/3] docs: sync AI_CHAT_HANDOFF.md with AGX1:C 5A contract;
+ record live E2E attempt #1 root cause
+
+---
+ AI_CHAT_HANDOFF.md | 27 ++++++++++++++-------------
+ HANDOFF.md         | 11 +++++++++++
+ 2 files changed, 25 insertions(+), 13 deletions(-)
+
+diff --git a/AI_CHAT_HANDOFF.md b/AI_CHAT_HANDOFF.md
+index 02289be..23200f5 100644
+--- a/AI_CHAT_HANDOFF.md
++++ b/AI_CHAT_HANDOFF.md
+@@ -5,35 +5,36 @@
+ ## Правила AGX1:C
+ 
+ 1. Для каждой новой команды используй контейнер AGX1:C.
+-2. Каждый AGX1:C должен содержать: session_id, message_id, action, args.
++2. Каждый AGX1:C должен содержать: session_id, message_id, action, args, timestamp, ttl.
+ 3. session_id — идентификатор текущей сессии Agent ChatAI Bridge. Используй тот session_id, который сообщил пользователь.
+ 4. Если пользователь сообщает новый session_id, с этого момента используй новый ID.
+ 5. Если ты забыл session_id, попроси пользователя сообщить его снова. Пользователь может скопировать его кнопкой в окне Agent ChatAI Bridge.
+-6. message_id генерируй самостоятельно для каждой новой команды. Он должен быть уникальным для каждой команды.
++6. message_id генерируй самостоятельно для каждой новой команды: ровно 32 hex-символа (пример формата: a1b2c3d4e5f60718293a4b5c6d7e8f90). msg_001 — неверный формат.
+ 7. Не повторяй уже использованный message_id для новой команды.
+ 8. action — имя разрешённого действия.
+ 9. args — JSON-объект аргументов действия. Если аргументов нет, используй {}.
+-10. Не добавляй в AGX1:C секретные или приватные ключи.
+-11. Не изменяй структуру контейнера и не придумывай дополнительные поля без отдельного правила.
+-12. Перед отправкой команды проверь, что в payload присутствуют актуальные session_id и новый уникальный message_id.
++10. timestamp — текущее Unix-время в секундах с дробной частью на момент создания команды. Не копируй примеры из документации.
++11. ttl — число секунд, достаточных для доставки и обработки; максимум 300. Больше — Gateway вернёт COMMAND_TTL_EXCEEDED.
++12. Не добавляй в AGX1:C секретные или приватные ключи.
++13. Не изменяй структуру контейнера и не придумывай дополнительные поля без отдельного правила.
++14. Перед отправкой команды проверь, что в payload присутствуют актуальные session_id, message_id, timestamp и ttl.
+ 
+ ## Формат payload
+ 
+-Логически payload имеет вид:
++payload — канонический JSON: ключи отсортированы по алфавиту, без пробелов, UTF-8:
+ 
+-{
+-  "session_id": "<текущий session_id>",
+-  "message_id": "<новый уникальный message_id>",
+-  "action": "<action>",
+-  "args": {}
+-}
++{"action":"<action>","args":{},"message_id":"<32 hex>","session_id":"<session_id>","timestamp":<unix-время>,"ttl":<секунды>}
+ 
+ Контейнер имеет вид:
+ 
+-AGX1:C:<base64url(payload)>:<integrity>
++AGX1:C:<base64url(payload)>:<sha256>
++
++где sha256 — полная SHA-256 строки `C:<base64url(payload)>`, ровно 64 hex-символа, нижний регистр. Укороченный или выдуманный тег приводит к тому, что Bridge вообще не распознает команду.
+ 
+ session_id и message_id являются идентификаторами, а не секретами.
+ 
++Команда без timestamp/ttl, с message_id не-32-hex или с тегом короче 64 символов не будет выполнена.
++
+ ## Начало нового чата
+ 
+ В начале нового чата пользователь должен передать этот HANDOFF и актуальный session_id.
+diff --git a/HANDOFF.md b/HANDOFF.md
+index 6a0272e..aab2bb3 100644
+--- a/HANDOFF.md
++++ b/HANDOFF.md
+@@ -129,6 +129,17 @@ Remaining for stage closure — live manual E2E in Brave/Chromium with a real te
+ - the test AI must generate AGX1:C into the rendered chat (no manual paste);
+ - verify execution succeeds, signed RESULT is inserted and auto-submitted;
+ - verify no self-reprocessing, no duplicate execution, no command/result loop.
++
++Live E2E attempt #1 (user report): the parallel-chat AI emitted an AGX1:C that was silently ignored by the Bridge. Root cause analysis (verified by decoding the container):
++- payload had only session_id/message_id/action/args — missing required timestamp and ttl (old pre-5A schema);
++- message_id was "msg_002" instead of 32 hex chars;
++- integrity tag was 16 hex chars instead of 64 and did not match SHA-256("C:"+payload) at all (hallucinated);
++- JSON was non-canonical (chat field order, not sorted keys).
++Because the tag length failed content.js AGX_COMMAND_PATTERN ({64}), extraction never happened: no Gateway request, no AGX1:R, no visible error. This matches E2E failure-mode coverage in tests/test_e2e_ai_command.py.
++
++Process issue found and fixed: two AI handoff docs existed — root AI_CHAT_HANDOFF.md (Russian, OLD 4-field schema, "<integrity>" wording) and chat_handoff/HANDOFF.md (English, current 6-field schema). The parallel chat followed AI_CHAT_HANDOFF.md literally and produced a valid-per-that-doc but rejected command. AI_CHAT_HANDOFF.md has been updated to the current contract (timestamp/ttl, 32-hex message_id, full 64-hex sha256 over "C:"+b64url, canonical sorted-key JSON). Action item: keep a single source of truth for AI chat rules or explicitly deprecate one of the files.
++
++Usability follow-up (open): containers that fail the envelope regex are invisible to the user. Consider a heuristic warning in content.js (e.g., text matching AGX1:C:[A-Za-z0-9_-]+:[A-Fa-f0-9]{8,63}) shown as a status notice so malformed AI commands surface instead of being silently dropped.
+ ## 5. Browser Bridge current next step
+ 
+ The intended final behavior is:
+-- 
+2.39.5
+

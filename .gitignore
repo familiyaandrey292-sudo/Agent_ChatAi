@@ -1,20 +1,22 @@
-gateway/result_signing_key.pem
-gateway/replay.sqlite3
-gateway/*.log
-gateway/replay_integration_action.txt
-tests/*.log
-tests/test_result_signing_key.pem
+# Compiled and build artifacts
+__pycache__/
+*.pyc
 
-gateway/browser_auth_public.pem
+# Logs and temp files
+*.log
+*.tmp
 
-gateway/audit.jsonl
+# Environment
+.env
+.env.local
+*.env.*
 
-gateway/audit.jsonl.*
+# Editors/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
 
-gateway/browser_auth_public.pem.*
-browser_bridge/test_profile/
-browser_bridge/test_profile_ext/
-browser_bridge/test_profile_ext2/
-browser_bridge/test_profile_ext3/
-**/__pycache__/
-*.py[cod]
+# System/Environment files
+.DS_Store
+Thumbs.db
