@@ -1,0 +1,620 @@
+
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:1:"""Centralized logging setup for Hermes Agent.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:2:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:3:Log files: agent.log (INFO+, everything), errors.log (WARNING+), gateway.log (INFO+,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:4:gateway components; ``mode="gateway"``), gui.log (INFO+, dashboard/TUI-gateway;
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:5:``mode="gui"``). All are rotating files driven through one async queue and formatted
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:6:with ``RedactingFormatter`` so secrets never reach disk.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:7:"""
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:8:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:9:import atexit
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:10:import contextlib
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:11:import copy
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:13:import logging
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:14:import os
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:15:import queue
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:16:import sys
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:17:import threading
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:18:from logging.handlers import QueueHandler, QueueListener
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:19:from pathlib import Path
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:20:from time import monotonic as _monotonic
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:21:from typing import Optional, Sequence
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:22:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:23:from hermes_constants import (
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:24:    get_config_path, get_hermes_home, mkdir_under_hermes_home, named_profile_is_deleted,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:25:)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:26:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:27:# setup_logging() is idempotent: a second call is a no-op unless ``force=True``.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:28:_logging_initialized = False
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:29:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:30:# True only when CLH was rejected at import because portalocker cannot take a
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:31:# lock on this Windows box; file handlers then use stdlib rotation (rollover
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:32:# disabled — see the module-header comment) and setup_logging() warns once.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:72:    return True
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:73:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:74:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:75:# Windows-ONLY swap (#44873): stdlib ``RotatingFileHandler.doRollover()`` calls
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:76:# ``os.rename()``, which fails with ``PermissionError [WinError 32]`` whenever
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:77:# another process holds an append handle on ``agent.log`` — essentially always
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:78:# in Hermes (TUI, gateway, hy_memory, MCP servers, CLI commands all log) —
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:79:# pinning the file at the size threshold and spamming stderr on every emit.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:80:# ``concurrent-log-handler`` serializes rollover with a cross-process lock.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:81:# POSIX keeps stdlib: renames of open files work, and managed mode (NixOS)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:82:# relies on stdlib's exact ``_open()``/``doRollover()`` lifecycle for the
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:83:# 0660 chmod and eager file creation; CLH opens lazily and rotates differently.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:84:if sys.platform == "win32":
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:85:    if _portalocker_probe():
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:245:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:246:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:247:def _quiet_noisy_loggers() -> None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:248:    """Pin noisy third-party loggers at WARNING."""
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:249:    for name in _NOISY_LOGGERS:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:250:        logging.getLogger(name).setLevel(logging.WARNING)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:251:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:252:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:253:def set_session_context(session_id: str) -> None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:254:    """Set the session ID for the current thread."""
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:255:    _session_context.session_id = session_id
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:256:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:257:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:258:def clear_session_context() -> None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:261:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:262:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:263:def _install_session_record_factory() -> None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:264:    """Replace the global LogRecord factory with one that adds ``session_tag``.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:265:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:266:    Unlike a Filter, the record factory runs for EVERY record in the process (propagated
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:267:    and third-party-handled ones included), so ``%(session_tag)s`` never KeyErrors.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:268:    Idempotent via a marker attribute.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:269:    """
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:270:    current_factory = logging.getLogRecordFactory()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:271:    if getattr(current_factory, "_hermes_session_injector", False):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:272:        return
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:273:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:274:    def _session_record_factory(*args, **kwargs):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:275:        record = current_factory(*args, **kwargs)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:276:        sid = getattr(_session_context, "session_id", None)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:277:        record.session_tag = f" [{sid}]" if sid else ""  # type: ignore[attr-defined]
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:278:        # QueueListener formats on its own thread, after the profile-scoped
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:279:        # ContextVar is gone; keep the resolved home on the record so a
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:280:        # multiplex desktop ticker can route to the job owner's files (#97489).
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:281:        try:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:282:            record.hermes_home = str(get_hermes_home().resolve())  # type: ignore[attr-defined]
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:283:        except Exception:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:284:            record.hermes_home = ""  # type: ignore[attr-defined]
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:285:        return record
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:286:    _session_record_factory._hermes_session_injector = True  # type: ignore[attr-defined]
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:305:# Logger name prefixes per component; used by _ComponentFilter and ``hermes logs --component``.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:306:COMPONENT_PREFIXES = {
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:307:    # ``plugins.platforms``: messaging adapters that migrated out of
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:308:    # ``gateway/platforms/`` into bundled plugins (#41112) are still gateway
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:309:    # components and belong in gateway.log. ``agent.memory_caller_scope``: a multiplexed gateway's
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:310:    # memory-provider profile refusals (#140058), which the operator reads in gateway.log.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:311:    "gateway": ("gateway", "hermes_plugins", "plugins.platforms", "agent.memory_caller_scope"),
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:312:    "agent": ("agent", "run_agent", "model_tools", "batch_runner"),
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:313:    "tools": ("tools",),
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:314:    "cli": ("hermes_cli", "cli"),
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:315:    "cron": ("cron",),
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:316:    "gui": ("hermes_cli.web_server", "hermes_cli.pty_bridge", "hermes_cli.desktop", "tui_gateway", "uvicorn"),
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:317:}
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:318:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:319:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:320:def _known_log_homes() -> set[Path]:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:321:    """Homes the queued file handlers already serve: static handlers by their file, routers by
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:322:    their default home plus every profile home they route. Caller holds ``_queue_state_lock``."""
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:323:    homes: set[Path] = set()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:324:    for handler in _queued_file_handlers:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:325:        if isinstance(handler, _ProfileRoutingFileHandler):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:326:            homes.add(handler._default_home)
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:327:            homes.update(handler._profile_homes)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:328:        elif isinstance(handler, RotatingFileHandler):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:329:            try:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:330:                homes.add(Path(handler.baseFilename).resolve().parent.parent)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:331:            except (TypeError, ValueError, OSError):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:332:                continue
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:333:    return homes
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:334:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:335:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:336:def _adopt_secondary_home(home: Path) -> bool:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:337:    """Route *home*'s records to its own files when this process already logs for another home.
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:338:    Enables profile routing for the union of homes (or widens the live routers); False when
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:339:    *home* is the first home seen or is already served."""
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:340:    try:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:341:        resolved = Path(home).expanduser().resolve()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:342:    except (TypeError, ValueError, OSError):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:343:        return False
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:344:    with _queue_state_lock:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:345:        known = _known_log_homes()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:346:    if not known or resolved in known:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:347:        return False
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:348:    return enable_profile_log_routing([*sorted(known), resolved])
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:349:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:350:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:351:def setup_logging(
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:352:    *,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:353:    hermes_home: Optional[Path] = None,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:354:    log_level: Optional[str] = None,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:355:    max_size_mb: Optional[int] = None,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:356:    backup_count: Optional[int] = None,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:357:    mode: Optional[str] = None,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:358:    force: bool = False,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:359:) -> Path:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:373:    # (#92281). Runs before the initialized check so every entry mode that
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:374:    # reaches this function gets it; a no-op once this stdout is line-buffered.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:375:    _line_buffer_piped_stdout()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:376:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:377:    # A second Hermes home in a process that already logs for another one — a dashboard or
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:378:    # ``hermes serve`` backend building agents for several profiles, a multiplexed gateway —
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:379:    # gets routed by record home. Stacking another file handler here would hand it EVERY
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:380:    # profile's records (the handlers carry no home filter), and a duplicate writer on top of
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:381:    # an existing router.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:382:    if _adopt_secondary_home(home):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:383:        return log_dir
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:384:    cfg_level, cfg_max_size, cfg_backup = _read_logging_config()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:385:    level_name = (log_level or cfg_level or "INFO").upper()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:386:    level = getattr(logging, level_name, logging.INFO)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:387:    max_bytes = (max_size_mb or cfg_max_size or 5) * 1024 * 1024
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:388:    backups = backup_count or cfg_backup or 3
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:392:    root = logging.getLogger()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:393:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:394:    # (filename, level, max_bytes, backup_count, component) — a component gates
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:395:    # the file on ``mode`` and restricts it to that component's logger prefixes.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:396:    handler_specs = (
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:397:        ("agent.log", level, max_bytes, backups, None),
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:398:        ("errors.log", logging.WARNING, 2 * 1024 * 1024, 2, None),
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:399:        ("gateway.log", logging.INFO, 5 * 1024 * 1024, 3, "gateway"),
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:400:        ("gui.log", logging.INFO, 10 * 1024 * 1024, 5, "gui"),
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:401:    )
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:402:    for filename, lvl, size, count, component in handler_specs:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:403:        if component is not None and mode != component:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:404:            continue
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:405:        _add_rotating_handler(
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:408:            log_filter=_ComponentFilter(COMPONENT_PREFIXES[component]) if component else None,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:409:        )
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:410:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:411:    if _WINDOWS_CLH_FALLBACK and not _fallback_warned:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:412:        # One-shot, and the file handlers above are already live, so this lands
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:413:        # in errors.log/agent.log — the fallback must never be invisible again.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:414:        _fallback_warned = True
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:415:        logging.getLogger("hermes_logging").warning(
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:416:            "concurrent-log-handler unavailable on this Windows install (%s); "
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:417:            "file logging fell back to stdlib rotation without rollover.",
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:418:            _WINDOWS_CLH_FALLBACK_REASON or "portalocker probe failed",
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:419:        )
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:420:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:421:    if _logging_initialized and not force:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:422:        return log_dir
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:423:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:424:    # Root level must be low enough for the handlers to fire.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:425:    if root.level == logging.NOTSET or root.level > level:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:426:        root.setLevel(level)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:427:    _quiet_noisy_loggers()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:428:    _logging_initialized = True
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:429:    return log_dir
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:430:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:431:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:432:def setup_verbose_logging() -> None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:433:    """Enable DEBUG-level console logging for ``--verbose`` / ``-v`` mode."""
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:434:    from agent.redact import RedactingFormatter
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:436:    root = logging.getLogger()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:437:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:438:    if any(getattr(h, "_hermes_verbose", False) for h in root.handlers):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:439:        return
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:440:    handler = logging.StreamHandler(_safe_stderr())
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:441:    handler.setLevel(logging.DEBUG)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:442:    handler.setFormatter(RedactingFormatter(_LOG_FORMAT_VERBOSE, datefmt="%H:%M:%S"))
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:443:    handler._hermes_verbose = True  # type: ignore[attr-defined]
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:444:    root.addHandler(handler)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:445:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:446:    if root.level > logging.DEBUG:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:447:        root.setLevel(logging.DEBUG)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:448:    _quiet_noisy_loggers()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:449:    # rex-deploy at INFO for sandbox status.
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:450:    logging.getLogger("rex-deploy").setLevel(logging.INFO)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:451:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:452:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:453:def _quietly(fn) -> None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:454:    """Call *fn* (a ``close``/``stop`` bound method) swallowing errors — teardown must never raise."""
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:455:    try:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:456:        fn()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:457:    except Exception:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:458:        pass
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:470:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:471:    def __init__(self, *args, **kwargs):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:472:        from hermes_cli.config import is_managed
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:473:        self._managed = is_managed()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:474:        self._unavailable_reported = False
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:475:        # Set by _ProfileRoutingFileHandler: a vanished logs/ dir means the profile was deleted,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:476:        # so skip the write (the router re-routes the record) instead of a FileNotFoundError traceback.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:477:        self._skip_write_when_dir_missing = False
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:478:        self.skipped_missing_dir = False
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:479:        # Set by _ProfileRoutingFileHandler: once closed (router close, logging.shutdown, a released
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:480:        # profile) never reopen. The stdlib reopens an append-mode file on emit after close.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:481:        self._never_reopen_after_close = False
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:482:        super().__init__(*args, **kwargs)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:483:        self._record_stream_stat()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:484:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:485:    def _chmod_if_managed(self):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:486:        if self._managed:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:487:            try:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:488:                os.chmod(self.baseFilename, 0o660)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:533:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:534:    def emit(self, record: logging.LogRecord) -> None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:535:        self.skipped_missing_dir = False
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:536:        # Under this handler's own lock (Handler.handle), which close() also takes: a record that
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:537:        # picked this handler before its router retired it is dropped, never written to a reopened
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:538:        # file (on Windows that reopened file keeps the profile's logs/ locked until exit).
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:539:        if self._never_reopen_after_close and getattr(self, "_closed", False):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:540:            return
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:541:        had_stream = self.stream is not None
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:542:        # The kernel caches inode metadata, so this stat is sub-microsecond on a hot file.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:543:        file_exists = had_stream or os.path.exists(self.baseFilename)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:544:        if file_exists:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:545:            self._reopen_if_externally_rotated()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:546:        # Only when the file is gone (or its reopen just failed), so a healthy emit pays no extra
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:568:        exc = sys.exc_info()[1]
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:569:        if _is_windows_concurrent_log_lock_timeout(exc):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:570:            _warn_windows_lock_timeout_once()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:571:            return
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:572:        if _is_unavailable_log_stream(exc):
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:573:            # The QueueListener must not turn a failing log destination into a traceback for
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:574:            # every queued record. Name the path once, drop the stale stream; the next emit
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:575:            # reopens it if the destination has recovered.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:576:            if not self._unavailable_reported:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:577:                self._unavailable_reported = True
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:578:                _quietly(lambda: print(
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:579:                    f"hermes_logging: {self.baseFilename} unavailable ({exc}); "
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:580:                    "file logging paused until it recovers", file=_safe_stderr()))
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:581:            if self.stream is not None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:589:        self._chmod_if_managed()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:590:        return stream
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:591:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:592:    def doRollover(self):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:593:        # The stdlib rollover opens a fresh baseFilename owned by whichever process crossed
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:594:        # maxBytes. With one rotating handler per profile that is usually the long-lived root
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:595:        # gateway, and a worker on another uid can never reopen its own agent.log (#120151).
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:596:        # Only root can hand the file back; an unprivileged process never changed the owner.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:597:        try:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:598:            previous = os.stat(self.baseFilename)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:599:        except OSError:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:600:            previous = None
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:601:        super().doRollover()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:602:        if previous is not None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:603:            try:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:622:        # and every emit re-triggers the WinError 32 rename failure (#44873).
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:623:        max_bytes, backup_count = 0, 0
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:624:    handler = _ManagedRotatingFileHandler(
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:625:        str(path), maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8"
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:626:    )
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:627:    handler.setLevel(level)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:628:    handler.setFormatter(formatter)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:629:    return handler
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:630:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:631:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:632:# A routed profile home is re-checked for an out-of-band delete (missing dir or tombstone) at
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:633:# most this often. WHY: the check is two stats per record per router on the listener thread,
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:634:# nearly doubling the syscalls of every live-profile emit; a deleted home only needs catching
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:635:# within a couple of seconds. Inside that window a tombstoned (not yet removed) home still gets
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:636:# its records; an rmtree is caught at once by the write that finds the directory gone.
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:637:_PROFILE_LIVENESS_RECHECK_S = 2.0
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:638:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:639:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:640:class _ProfileRoutingFileHandler(logging.Handler):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:641:    """Route queued records to the log file for their Hermes home.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:642:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:643:    Used only behind the QueueListener, so its small routing lock never blocks an agent
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:644:    or dashboard event loop. Per-home handlers keep rotation, redaction and managed perms.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:645:    """
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:646:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:647:    def __init__(self, existing: RotatingFileHandler, profile_homes: Sequence[Path]) -> None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:648:        """Take over *existing*'s path, level, rotation, formatter and filters."""
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:649:        super().__init__(level=existing.level)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:650:        resolved = Path(existing.baseFilename).resolve()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:651:        self.baseFilename = str(resolved)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:652:        self._hermes_routed_log_path = resolved
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:653:        self._default_home = resolved.parent.parent.resolve()
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:654:        self._profile_homes = {Path(home).expanduser().resolve() for home in profile_homes}
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:655:        self._filename = resolved.name
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:656:        self._max_bytes = getattr(existing, "maxBytes", 0)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:657:        self._backup_count = getattr(existing, "backupCount", 0)
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:658:        self._profile_handlers: dict[Path, _ManagedRotatingFileHandler] = {}
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:659:        self._profile_handlers_lock = threading.RLock()
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:660:        self._router_closed = False  # under _profile_handlers_lock; close() is final
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:661:        # Home -> monotonic time of its last liveness check (see _PROFILE_LIVENESS_RECHECK_S).
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:662:        self._liveness_checked_at: dict[Path, float] = {}
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:663:        self.setFormatter(existing.formatter)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:664:        for log_filter in existing.filters:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:665:            self.addFilter(log_filter)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:666:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:667:    def _home_for_record(self, record: logging.LogRecord) -> Path:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:668:        raw_home = getattr(record, "hermes_home", "")
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:669:        try:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:670:            candidate = Path(raw_home).expanduser().resolve()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:671:        except (TypeError, ValueError, OSError):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:672:            candidate = self._default_home
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:673:        if candidate == self._default_home or candidate not in self._profile_homes:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:674:            return self._default_home
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:675:        last = self._liveness_checked_at.get(candidate)
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:676:        if last is None or _monotonic() - last >= _PROFILE_LIVENESS_RECHECK_S:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:677:            # First sighting always checks, so a home deleted before it ever logged is caught on
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:678:            # its first record; afterwards at most once per interval. An rmtree inside the
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:679:            # interval is caught by emit() on the record whose write finds the dir gone.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:680:            if self._release_if_deleted(candidate):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:681:                return self._default_home
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:682:        return candidate
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:683:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:684:    def _release_if_deleted(self, home: Path) -> bool:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:685:        """Release *home* if it was deleted out of band; True when it was."""
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:686:        self._liveness_checked_at[home] = _monotonic()
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:687:        if home.is_dir() and not named_profile_is_deleted(home):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:688:            return False
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:689:        # Deleted out of band (CLI ``hermes profile delete`` while this process runs; it
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:690:        # tombstones before rmtree). The startup snapshot still names it, so its handler would
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:691:        # retry the vanished logs/ path on every record (#103777). Release it the way an
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:692:        # in-process delete does: the stale fd is closed on this routed record and the home is
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:693:        # dropped from the routing set, so later records fall back to the default home. This
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:694:        # does not reach into another process: a CLI delete racing a live server's open fd
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:695:        # still relies on release_profile_log_handlers in-process and #130285.
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:696:        self.release_profile(home)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:697:        return True
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:698:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:699:    def _handler_for_home(self, home: Path) -> Optional[_ManagedRotatingFileHandler]:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:700:        """The open handler for *home*; ``None`` once the router or that home is retired."""
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:701:        with self._profile_handlers_lock:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:702:            handler = self._profile_handlers.get(home)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:703:        if handler is not None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:704:            return handler
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:705:        # Built with no router lock held: ``Handler.__init__`` takes ``logging._lock``, and
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:706:        # ``logging.shutdown`` (uvicorn's ``dictConfig``) holds that lock while it acquires each
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:707:        # handler's lock and closes it (``close`` takes ``_profile_handlers_lock``). Holding
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:708:        # either router lock here deadlocked the QueueListener against ``dictConfig`` (T23).
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:709:        built = _new_file_handler(
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:710:            home / "logs" / self._filename, level=self.level, max_bytes=self._max_bytes,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:711:            backup_count=self._backup_count, formatter=self.formatter,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:712:        )
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:713:        built._skip_write_when_dir_missing = home != self._default_home
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:714:        built._never_reopen_after_close = True
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:715:        with self._profile_handlers_lock:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:716:            # Closed (logging.shutdown) or released while this was built: publishing now would leak
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:717:            # the new handler's fd into a router nothing will close again.
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:718:            retired = self._router_closed or (home != self._default_home and home not in self._profile_homes)
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:719:            handler = None if retired else self._profile_handlers.setdefault(home, built)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:720:        if handler is not built:  # retired, or another thread opened it first
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:721:            _quietly(built.close)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:722:        return handler
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:723:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:724:    def handle(self, record: logging.LogRecord):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:725:        """``Handler.handle`` without this router's own I/O lock: each per-home handler takes its
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:726:        own lock to write, and routing state has ``_profile_handlers_lock``. Holding ``self.lock``
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:727:        across ``emit`` (which can open a handler, taking ``logging._lock``) inverted the order
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:728:        ``logging.shutdown`` uses (module lock, then handler lock) (T23)."""
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:729:        rv = self.filter(record)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:730:        if isinstance(rv, logging.LogRecord):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:731:            record = rv
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:732:        if rv:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:733:            self.emit(record)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:734:        return rv
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:742:            if handler is None:  # the router is closed
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:743:                return
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:744:            if home == self._default_home:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:745:                handler.handle(record)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:746:                return
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:747:            # Formatted here, on the listener thread, where the record's profile scope is gone: bind its home so
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:748:            # RedactingFormatter applies THAT profile's redact_secrets policy and vault values, not the launch's.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:749:            from hermes_constants import reset_hermes_home_override, set_hermes_home_override
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:750:            token = set_hermes_home_override(str(home))
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:751:            try:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:752:                handler.handle(record)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:753:            finally:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:754:                reset_hermes_home_override(token)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:755:            # The write was skipped because logs/ is gone (an rmtree inside the liveness interval,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:756:            # see _ManagedRotatingFileHandler.emit): re-check now, and keep the record in the
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:757:            # default log either way (a live profile whose logs/ was removed by hand included).
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:758:            if handler.skipped_missing_dir:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:759:                self._release_if_deleted(home)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:760:                if (fallback := self._handler_for_home(self._default_home)) is not None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:761:                    fallback.handle(record)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:762:        except Exception:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:763:            self.handleError(record)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:764:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:765:    def close(self) -> None:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:766:        with self._profile_handlers_lock:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:767:            self._router_closed = True
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:768:            handlers = list(self._profile_handlers.values())
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:769:            self._profile_handlers.clear()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:770:        for handler in handlers:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:771:            _quietly(handler.close)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:772:        super().close()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:773:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:774:    def release_profile(self, home: Path) -> bool:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:775:        """Close and forget the routed files belonging to a deleted profile."""
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:776:        with self._profile_handlers_lock:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:777:            handler = self._profile_handlers.pop(home, None)
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:778:            self._profile_homes.discard(home)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:779:            self._liveness_checked_at.pop(home, None)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:780:        if handler is None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:781:            return False
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:782:        _quietly(handler.close)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:783:        return True
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:784:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:785:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:786:# Asynchronous file logging: an ``emit`` can block on the cross-process
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:787:# rotation lock (module header); on an asyncio thread that stalls the loop and
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:788:# drops WebSocket clients. Every file handler is therefore driven by a single
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:789:# QueueListener thread; loggers only do a non-blocking enqueue.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:790:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:791:_log_queue: Optional[queue.SimpleQueue] = None
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:792:_queue_listener: Optional[QueueListener] = None
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:793:_queued_file_handlers: list = []
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:794:_queue_atexit_registered = False
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:795:# Guards every read-modify-write of the four globals above. setup_logging()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:796:# holds no lock and its _logging_initialized guard runs AFTER handler
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:797:# registration, so _register_queued_handler() can race a flush/reset from
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:798:# another thread (gateway init vs a plugin/CLI path); without this, two
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:799:# threads can interleave stop()/reassign/start() and leave two live listeners.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:800:_queue_state_lock = threading.Lock()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:801:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:802:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:803:class _NonFormattingQueueHandler(QueueHandler):
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:804:    """``QueueHandler`` for an in-process queue.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:805:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:806:    Stdlib ``prepare()`` formats and strips ``args``/``exc_info`` for cross-process
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:807:    pickling; ours is in-process, so targets get the unformatted record and apply their
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:808:    own ``RedactingFormatter`` on the listener thread. A shallow copy is returned because
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:809:    the emitting thread's synchronous handlers may mutate ``record.message`` meanwhile.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:810:    """
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:811:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:812:    def prepare(self, record: logging.LogRecord) -> logging.LogRecord:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:829:    added (queue empty), so ``stop()`` returns immediately.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:830:    """
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:831:    global _queue_listener
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:832:    if _queue_listener is not None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:833:        _queue_listener.stop()
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:834:    _queue_listener = QueueListener(_log_queue, *_queued_file_handlers, respect_handler_level=True)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:835:    _queue_listener.start()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:836:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:837:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:838:def _register_queued_handler(handler: logging.Handler) -> None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:839:    """Route *handler* through the shared async queue instead of attaching it to root.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:840:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:841:    Emitting threads never block on file I/O or the rotation lock; the ``QueueListener``
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:842:    applies each handler's own level and filters on its worker thread.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:843:    """
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:844:    global _log_queue, _queue_atexit_registered
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:845:    with _queue_state_lock:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:846:        if _log_queue is None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:847:            _log_queue = queue.SimpleQueue()
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:848:            qh = _NonFormattingQueueHandler(_log_queue)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:849:            qh._hermes_queue = True  # type: ignore[attr-defined]
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:850:            # Always on the root logger so records from any logger reach the queue.
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:851:            logging.getLogger().addHandler(qh)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:852:        _queued_file_handlers.append(handler)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:853:        _start_queue_listener_locked()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:854:        if not _queue_atexit_registered:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:855:            # Runs before logging.shutdown (registered earlier at import time),
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:856:            # so the listener stops before its file handlers are closed.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:857:            atexit.register(_stop_queue_listener)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:858:            _queue_atexit_registered = True
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:859:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:885:    t = threading.Thread(target=lambda: _quietly(listener.stop), name="hermes-log-drain", daemon=True)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:886:    t.start()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:887:    t.join(timeout)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:888:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:889:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:890:def release_profile_log_handlers(profile_home: str | Path) -> int:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:891:    """Release this process's routed log files below a profile before it is removed.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:892:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:893:    The Desktop serve process can route records for several profiles through one
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:894:    ``QueueListener``. On Windows, each routed concurrent log handler keeps its
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:895:    lock file open, so closing only external profile resources still leaves
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:896:    ``logs/.__agent.lock`` and ``logs/.__errors.lock`` unavailable to rmtree.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:897:    """
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:898:    global _queue_listener
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:899:    try:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:900:        home = Path(profile_home).expanduser().resolve()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:901:    except (TypeError, ValueError, OSError):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:902:        return 0
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:903:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:904:    with _queue_state_lock:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:905:        listener = _queue_listener
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:906:        if listener is not None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:907:            listener.stop()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:908:            _queue_listener = None
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:909:        released = sum(
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:910:            handler.release_profile(home)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:911:            for handler in _queued_file_handlers
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:912:            if isinstance(handler, _ProfileRoutingFileHandler)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:913:        )
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:914:        if listener is not None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:915:            _start_queue_listener_locked()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:916:    return released
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:917:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:918:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:919:def enable_profile_log_routing(profile_homes: Sequence[str | Path]) -> bool:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:920:    """Make the queued file logs follow a desktop profile context.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:921:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:922:    ``setup_logging`` binds handlers to one process home; the desktop dashboard's
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:923:    embedded cron ticker may run jobs for every profile, so its static file handlers
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:924:    are replaced with profile routers once the profile list is known. Returns ``True``
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:925:    when routing is (or already was) enabled; a single-profile caller is left untouched.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:926:    """
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:927:    global _queue_listener
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:928:    homes: list[Path] = []
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:929:    for entry in profile_homes:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:930:        try:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:931:            resolved = Path(entry[1] if isinstance(entry, tuple) else entry).expanduser().resolve()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:932:        except (TypeError, ValueError, OSError):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:933:            continue
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:934:        if resolved not in homes:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:935:            homes.append(resolved)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:936:    if len(homes) < 2:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:937:        return False
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:938:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:939:    with _queue_state_lock:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:940:        if not _queued_file_handlers:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:941:            return False
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:942:        routers = [h for h in _queued_file_handlers if isinstance(h, _ProfileRoutingFileHandler)]
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:943:        if routers:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:944:            for handler in routers:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:945:                with handler._profile_handlers_lock:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:946:                    handler._profile_homes = handler._profile_homes.union(homes)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:947:            return True
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:948:        listener = _queue_listener
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:949:        if listener is not None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:950:            listener.stop()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:951:            _queue_listener = None
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:952:        replacement = []
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:953:        for existing in _queued_file_handlers:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:954:            if isinstance(existing, RotatingFileHandler):
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:955:                replacement.append(_ProfileRoutingFileHandler(existing, homes))
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:956:                _quietly(existing.close)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:957:            else:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:958:                replacement.append(existing)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:959:        _queued_file_handlers[:] = replacement
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:960:        if listener is not None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:961:            _start_queue_listener_locked()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:962:        return True
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:963:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:987:    log_filter: Optional[logging.Filter] = None,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:988:) -> None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:989:    """Register a queued ``RotatingFileHandler`` for *path*; idempotent per resolved path."""
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:990:    resolved = path.resolve()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:991:    for existing in _queued_file_handlers:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:992:        # Already attached directly, or already covered by the profile router — for its default
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:993:        # home or any profile home it routes (a bare handler beside it would take every record).
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:994:        if getattr(existing, "_hermes_routed_log_path", None) == resolved or (
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:995:            isinstance(existing, RotatingFileHandler)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:996:            and Path(getattr(existing, "baseFilename", "")).resolve() == resolved
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:997:        ):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:998:            return
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:999:        if isinstance(existing, _ProfileRoutingFileHandler) and existing._filename == resolved.name and (
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:1000:            resolved.parent.parent == existing._default_home or resolved.parent.parent in existing._profile_homes
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:1001:        ):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:1002:            return
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:1003:    handler = _new_file_handler(
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:1004:        path, level=level, max_bytes=max_bytes, backup_count=backup_count, formatter=formatter,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:1005:    )
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:1006:    if log_filter is not None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:1007:        handler.addFilter(log_filter)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:1008:    # Routing already on (a second home adopted earlier): a component log added now —
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:1009:    # ``mode="gateway"`` after the fact — must route too, or it takes every home's records.
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:1010:    routers = [h for h in _queued_file_handlers if isinstance(h, _ProfileRoutingFileHandler)]
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:1011:    if routers:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:1012:        homes: set[Path] = set()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:1013:        for router in routers:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:1014:            homes.add(router._default_home)
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:1015:            homes.update(router._profile_homes)
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:1016:        routed = _ProfileRoutingFileHandler(handler, sorted(homes))
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:1017:        _quietly(handler.close)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:1018:        handler = routed
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:1019:    # Queue, not ``addHandler``: the rotation-lock wait never runs on the caller's thread.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:1020:    _register_queued_handler(handler)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:1021:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:1022:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:1023:def _read_logging_config():
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:1024:    """Best-effort read of ``logging.*`` from config.yaml."""
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:1025:    try:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:1026:        # Prefer the shared effective-config cache (managed overlay included, so an administrator
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\hermes_logging.py:1027:        # can pin logging.*) so this reuses hermes_cli.main's early parse (one config.yaml parse
+
+
