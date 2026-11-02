@@ -1,0 +1,224 @@
+
+========== C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py ==========
+Modified: 11/02/2026 21:57:08
+SHA256: D1CE709D9391B48CD27C55CFC1442EAA50D86790E676CF7EEAD99635605E3CB6
+
+--- Line 2464 ---
+
+def _relay_stream_identity(agent, name_default: str) -> dict:
+    """``session_id``/``name``/``model_name`` kwargs for ``relay_llm.stream``."""
+    return {"session_id": str(getattr(agent, "session_id", "") or ""),
+        "name": str(getattr(agent, "provider", "") or name_default),
+        "model_name": str(getattr(agent, "model", "") or "")}
+
+--- Line 2574 ---
+
+    def _open_stream(self, next_api_kwargs: dict[str, Any]):
+        return _bedrock_converse_call(dict(next_api_kwargs), stream=True, on_stream_denied=self._fall_back_to_converse)
+
+    def _fall_back_to_converse(self, client, final_kwargs: dict, exc: Exception):
+        # InvokeModel-only IAM policies cannot stream; fall back inside the same Relay
+
+--- Line 2614 ---
+                plugin_reasoning_observer = False
+
+            stream = relay_llm.stream(dict(self.api_kwargs), self._open_stream,
+                **_relay_stream_identity(agent, "bedrock"),
+                finalizer=lambda: _finalize_bedrock_relay_events(intercepted_events),
+                on_stream_created=_stream_created, on_chunk=intercepted_events.append,
+
+--- Line 2854 ---
+
+    def _new_diag(self) -> dict:
+        diag = self.agent._stream_diag_init()
+        self.clients.diag = diag
+        return diag
+
+
+--- Line 2961 ---
+        return request_client.chat.completions.create(**stream_kwargs)
+
+    def _chat_stream_created(self, raw_stream: Any) -> None:
+        response = self._attempt_stream_response = getattr(raw_stream, "response", None)
+        self.agent._capture_rate_limits(response)
+        self.agent._capture_credits(response)
+
+--- Line 2966 ---
+        self.agent._capture_credits(response)
+        self.agent._capture_nous_model_switch(response)
+        self.agent._stream_diag_capture_response(self.clients.diag, response)
+        self.agent._check_openrouter_cache_status(response)
+        self._writer_token = claim_stream_writer(self.agent)
+        self._reabort_if_cancelled(response)
+
+--- Line 3083 ---
+
+        from agent import relay_llm
+        stream = self._set_managed_stream(relay_llm.stream(self.api_kwargs, _open_stream,
+            **_relay_stream_identity(self.agent, "provider"), finalizer=relay_response.finalize,
+            on_stream_created=self._chat_stream_created, on_chunk=relay_response.observe,
+            accept_chunk=lambda chunk: self._accept_chat_chunk(stream_attempt_id, chunk),
+
+--- Line 3085 ---
+        stream = self._set_managed_stream(relay_llm.stream(self.api_kwargs, _open_stream,
+            **_relay_stream_identity(self.agent, "provider"), finalizer=relay_response.finalize,
+            on_stream_created=self._chat_stream_created, on_chunk=relay_response.observe,
+            accept_chunk=lambda chunk: self._accept_chat_chunk(stream_attempt_id, chunk),
+            completed_response_predicate=lambda value: hasattr(value, "choices"),
+            metadata=_relay_stream_metadata(self.agent, "chat_completions"), defer_logical_completion=True))
+
+--- Line 3220 ---
+
+        logger.warning(
+            "STREAM_DIAG model=%s provider=%s chunks=%d content_chars=%d "
+            "reasoning_chars=%d refusal_chars=%d tool_calls=%d usage_chunks=%d "
+            "finish_reason=%s response_id_present=%s",
+            self.api_kwargs.get("model", "unknown"),
+
+--- Line 3256 ---
+
+    def _adopt_final_response(self, final_response):
+        """Adapter returned a completed response for ``stream=True``: switch the
+        session to non-streaming and replay its content as deltas."""
+        logger.info("Streaming request returned a final response object instead of an iterator; "
+            "switching %s/%s to non-streaming for this session.", self.agent.provider or "unknown",
+
+--- Line 3322 ---
+        return mock_tool_calls or None, has_truncated_tool_args
+
+    def _finish_chat_stream(self, stream, role, content_parts, reasoning_parts, tool_calls_acc, finish_reason,
+        model_name, usage_obj, *, flush_pending, response_id=None, upstream_provider=None, reasoning_details=None,
+        refusal_parts=None):
+        """Assemble the non-streaming-shaped response after the chunk loop. A
+
+--- Line 3441 ---
+            response = self._attempt_stream_response = getattr(raw_stream, "response", None)
+            # Snapshot response diagnostics now so they survive a stream dying before the first event.
+            self._quiet(lambda: self.agent._stream_diag_capture_response(_diag, response))
+            self._writer_token = claim_stream_writer(self.agent)
+            self._reabort_if_cancelled(response)
+
+
+--- Line 3445 ---
+            self._reabort_if_cancelled(response)
+
+        stream = self._set_managed_stream(relay_llm.stream(self.api_kwargs, _open_anthropic_stream,
+            **_relay_stream_identity(self.agent, "anthropic"), finalizer=accumulator.finalize,
+            on_stream_created=_anthropic_stream_created, on_chunk=accumulator.observe,
+            accept_chunk=lambda _event: self._writer_still_current("Anthropic streaming"),
+
+--- Line 3675 ---
+                    f"❌ {_what} {max_retries + 1} attempts. The provider may be experiencing issues — try again in a moment.")
+            else:
+                from agent.stream_diag import buffer_connect_exhausted_notice
+                buffer_connect_exhausted_notice(self.agent, e, attempts=max_retries + 1, base_url=self.agent.base_url)
+        else:
+            self._maybe_disable_streaming(e)
+
+========== C:\Users\Undr\AppData\Local\hermes\installs\bf038339ebbcec96\environments\cf3d328a12974d2cbeae6c21faea6db9\workspace\agent\chat_completion_helpers.py ==========
+Modified: 11/01/2026 04:56:33
+SHA256: D5AC7612AF5819891293C4EC182F71A1A9E59F6AA32E98F15266A85FCA64E4A8
+
+--- Line 2464 ---
+
+def _relay_stream_identity(agent, name_default: str) -> dict:
+    """``session_id``/``name``/``model_name`` kwargs for ``relay_llm.stream``."""
+    return {"session_id": str(getattr(agent, "session_id", "") or ""),
+        "name": str(getattr(agent, "provider", "") or name_default),
+        "model_name": str(getattr(agent, "model", "") or "")}
+
+--- Line 2574 ---
+
+    def _open_stream(self, next_api_kwargs: dict[str, Any]):
+        return _bedrock_converse_call(dict(next_api_kwargs), stream=True, on_stream_denied=self._fall_back_to_converse)
+
+    def _fall_back_to_converse(self, client, final_kwargs: dict, exc: Exception):
+        # InvokeModel-only IAM policies cannot stream; fall back inside the same Relay
+
+--- Line 2614 ---
+                plugin_reasoning_observer = False
+
+            stream = relay_llm.stream(dict(self.api_kwargs), self._open_stream,
+                **_relay_stream_identity(agent, "bedrock"),
+                finalizer=lambda: _finalize_bedrock_relay_events(intercepted_events),
+                on_stream_created=_stream_created, on_chunk=intercepted_events.append,
+
+--- Line 2854 ---
+
+    def _new_diag(self) -> dict:
+        diag = self.agent._stream_diag_init()
+        self.clients.diag = diag
+        return diag
+
+
+--- Line 2961 ---
+        return request_client.chat.completions.create(**stream_kwargs)
+
+    def _chat_stream_created(self, raw_stream: Any) -> None:
+        response = self._attempt_stream_response = getattr(raw_stream, "response", None)
+        self.agent._capture_rate_limits(response)
+        self.agent._capture_credits(response)
+
+--- Line 2966 ---
+        self.agent._capture_credits(response)
+        self.agent._capture_nous_model_switch(response)
+        self.agent._stream_diag_capture_response(self.clients.diag, response)
+        self.agent._check_openrouter_cache_status(response)
+        self._writer_token = claim_stream_writer(self.agent)
+        self._reabort_if_cancelled(response)
+
+--- Line 3075 ---
+
+        from agent import relay_llm
+        stream = self._set_managed_stream(relay_llm.stream(self.api_kwargs, _open_stream,
+            **_relay_stream_identity(self.agent, "provider"), finalizer=relay_response.finalize,
+            on_stream_created=self._chat_stream_created, on_chunk=relay_response.observe,
+            accept_chunk=lambda chunk: self._accept_chat_chunk(stream_attempt_id, chunk),
+
+--- Line 3077 ---
+        stream = self._set_managed_stream(relay_llm.stream(self.api_kwargs, _open_stream,
+            **_relay_stream_identity(self.agent, "provider"), finalizer=relay_response.finalize,
+            on_stream_created=self._chat_stream_created, on_chunk=relay_response.observe,
+            accept_chunk=lambda chunk: self._accept_chat_chunk(stream_attempt_id, chunk),
+            completed_response_predicate=lambda value: hasattr(value, "choices"),
+            metadata=_relay_stream_metadata(self.agent, "chat_completions"), defer_logical_completion=True))
+
+--- Line 3231 ---
+
+    def _adopt_final_response(self, final_response):
+        """Adapter returned a completed response for ``stream=True``: switch the
+        session to non-streaming and replay its content as deltas."""
+        logger.info("Streaming request returned a final response object instead of an iterator; "
+            "switching %s/%s to non-streaming for this session.", self.agent.provider or "unknown",
+
+--- Line 3297 ---
+        return mock_tool_calls or None, has_truncated_tool_args
+
+    def _finish_chat_stream(self, stream, role, content_parts, reasoning_parts, tool_calls_acc, finish_reason,
+        model_name, usage_obj, *, flush_pending, response_id=None, upstream_provider=None, reasoning_details=None,
+        refusal_parts=None):
+        """Assemble the non-streaming-shaped response after the chunk loop. A
+
+--- Line 3416 ---
+            response = self._attempt_stream_response = getattr(raw_stream, "response", None)
+            # Snapshot response diagnostics now so they survive a stream dying before the first event.
+            self._quiet(lambda: self.agent._stream_diag_capture_response(_diag, response))
+            self._writer_token = claim_stream_writer(self.agent)
+            self._reabort_if_cancelled(response)
+
+
+--- Line 3420 ---
+            self._reabort_if_cancelled(response)
+
+        stream = self._set_managed_stream(relay_llm.stream(self.api_kwargs, _open_anthropic_stream,
+            **_relay_stream_identity(self.agent, "anthropic"), finalizer=accumulator.finalize,
+            on_stream_created=_anthropic_stream_created, on_chunk=accumulator.observe,
+            accept_chunk=lambda _event: self._writer_still_current("Anthropic streaming"),
+
+--- Line 3650 ---
+                    f"❌ {_what} {max_retries + 1} attempts. The provider may be experiencing issues — try again in a moment.")
+            else:
+                from agent.stream_diag import buffer_connect_exhausted_notice
+                buffer_connect_exhausted_notice(self.agent, e, attempts=max_retries + 1, base_url=self.agent.base_url)
+        else:
+            self._maybe_disable_streaming(e)
