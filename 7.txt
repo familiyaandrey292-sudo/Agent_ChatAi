@@ -1,0 +1,568 @@
+
+===== stream_diag.py: logging and retry =====
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:1:"""Stream diagnostics — per-attempt counters, exception chains, retry logging.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:2:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:3:When a streaming request dies mid-response these helpers record WHY (which CF
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:4:edge / OpenRouter downstream served it, bytes+chunks before the drop, HTTP
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:5:status, underlying httpx error class) to ``agent.log`` in full and to the
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:6:user-facing status line compactly. ``run_agent`` keeps thin forwarders so
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:7:existing call sites and tests patching ``run_agent.<helper>`` keep working.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:8:"""
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:9:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:10:from __future__ import annotations
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:11:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:12:import logging
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:13:import time
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:14:from typing import Any, Dict, List, Optional
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:15:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:16:logger = logging.getLogger(__name__)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:17:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:18:# Lowercased upstream headers captured per attempt for post-hoc analysis.
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:19:STREAM_DIAG_HEADERS = (
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:20:    "cf-ray", "cf-cache-status", "x-openrouter-provider", "x-openrouter-model", "x-openrouter-id",
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:21:    "x-request-id", "x-vercel-id", "via", "server", "x-forwarded-for",
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:22:)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:23:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:24:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:25:def stream_diag_init() -> dict[str, Any]:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:26:    """Fresh per-attempt diagnostic dict; mutated in place by the streaming functions and read by the retry block."""
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:27:    return {
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:28:        "started_at": time.time(), "first_chunk_at": None, "chunks": 0, "bytes": 0,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:29:        "headers": {}, "http_status": None, "serving_provider": None,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:30:        # True once a terminal finish_reason is seen on this attempt: tells a mid-flight
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:31:        # transport failure (False) from an error raised after completion (#102766).
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:32:        "finish_reason_seen": False,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:33:    }
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:34:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:35:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:36:def stream_diag_capture_response(agent: Any, diag: dict[str, Any], http_response: Any) -> None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:37:    """Snapshot headers + HTTP status at stream open (so they survive a drop before the first chunk). Best-effort."""
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:38:    if http_response is None or not isinstance(diag, dict):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:39:        return
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:40:    try:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:41:        diag["http_status"] = getattr(http_response, "status_code", None)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:42:    except Exception:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:43:        pass
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:44:    try:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:45:        headers = getattr(http_response, "headers", None) or {}
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:46:        captured: dict[str, str] = {}
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:47:        for name in STREAM_DIAG_HEADERS:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:48:            try:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:49:                if val := headers.get(name):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:50:                    captured[name] = str(val)[:120]  # keep log lines bounded
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:51:            except Exception:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:52:                continue
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:53:        diag["headers"] = captured
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:54:    except Exception:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:55:        pass
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:56:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:57:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:58:def flatten_exception_chain(error: BaseException) -> str:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:59:    """Compact ``Outer(msg) <- Inner(msg) <- ...`` rendering, walking ``__cause__`` then ``__context__``
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:60:    (deduped, max 4 deep): the OpenAI SDK wraps httpx errors so only the wrapper class is visible at
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:61:    the catch site; the inner RemoteProtocolError/ConnectError/ReadError says WHY the stream died."""
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:62:    seen: list[BaseException] = []
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:63:    link: Optional[BaseException] = error
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:64:    while link is not None and len(seen) < 4 and link not in seen:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:65:        seen.append(link)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:66:        nxt = getattr(link, "__cause__", None) or getattr(link, "__context__", None)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:67:        if nxt is None or nxt is link:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:68:            break
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:69:        link = nxt
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:70:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:71:    def render(e: BaseException) -> str:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:74:        return f"{type(e).__name__}({msg})" if msg else type(e).__name__
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:75:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:76:    return " <- ".join(render(e) for e in seen) if seen else type(error).__name__
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:77:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:78:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:79:def _diag_fields(diag: Optional[dict[str, Any]]) -> tuple:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:80:    """(http_status, bytes, chunks, elapsed, ttfb, serving_provider, finish_reason_seen, upstream)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:81:    for the retry log line; ``-`` when unknown."""
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:82:    _bytes = _chunks = 0
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:83:    _elapsed = 0.0
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:84:    _ttfb = _headers_repr = _http_status = _serving_provider = "-"
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:85:    _finish_reason_seen = False
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:86:    if isinstance(diag, dict):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:87:        try:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:88:            _now = time.time()
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:89:            _bytes = int(diag.get("bytes") or 0)
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:90:            _chunks = int(diag.get("chunks") or 0)
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:91:            _started = float(diag.get("started_at") or _now)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:92:            _elapsed = max(0.0, _now - _started)
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:93:            _first = diag.get("first_chunk_at")
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:94:            if _first is not None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:95:                _ttfb = f"{max(0.0, float(_first) - _started):.2f}s"
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:96:            headers = diag.get("headers") or {}
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:97:            if isinstance(headers, dict) and headers:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:98:                _headers_repr = " ".join(f"{k}={v}" for k, v in headers.items())
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:99:            if diag.get("http_status") is not None:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:100:                _http_status = str(diag.get("http_status"))
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:101:            if diag.get("serving_provider"):
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:102:                _serving_provider = str(diag["serving_provider"])
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:103:            _finish_reason_seen = bool(diag.get("finish_reason_seen"))
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:104:        except Exception:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:105:            pass
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:106:    return _http_status, _bytes, _chunks, _elapsed, _ttfb, _serving_provider, _finish_reason_seen, _headers_repr
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:107:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:108:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:109:def log_stream_retry(
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:110:    agent: Any, *, kind: str, error: BaseException, attempt: int, max_attempts: int,
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:111:    mid_tool_call: bool, diag: Optional[dict[str, Any]] = None,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:112:) -> None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:113:    """Structured WARNING to ``agent.log`` for a transient stream drop + retry, always logged regardless of
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:114:    UI verbosity. With *diag*, also records upstream headers, HTTP status, bytes/chunks, elapsed and TTFB on
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:115:    the dying attempt — enough to tell "one CF edge / downstream provider" from "random across runs".
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:116:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:117:    The ``serving_provider`` field names the downstream that actually served the attempt (relays re-roll it
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:118:    per request and report it only in the chunk body), so a drop can be attributed to a provider even when
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:119:    the response carried no ``x-openrouter-provider`` header."""
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:120:    try:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:121:        try:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:122:            _summary = agent._summarize_api_error(error)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:123:        except Exception:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:124:            _summary = str(error)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:125:        if _summary and len(_summary) > 240:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:126:            _summary = _summary[:240] + "…"
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:127:        try:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:128:            _chain = flatten_exception_chain(error)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:129:        except Exception:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:130:            _chain = type(error).__name__
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:131:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:132:        logger.warning(
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:133:            "Stream %s on attempt %s/%s — retrying. subagent_id=%s depth=%s provider=%s base_url=%s "
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:134:            "error_type=%s error=%s chain=%s http_status=%s bytes=%d chunks=%d elapsed=%.2fs ttfb=%s "
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:135:            "serving_provider=%s finish_reason_seen=%s upstream=[%s]",
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:136:            kind, attempt, max_attempts,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:137:            getattr(agent, "_subagent_id", None) or "-", getattr(agent, "_delegate_depth", 0),
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:138:            agent.provider or "-", agent.base_url or "-",
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:139:            type(error).__name__, _summary, _chain, *_diag_fields(diag),
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:140:            extra={"mid_tool_call": mid_tool_call},
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:141:        )
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:142:    except Exception:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:143:        logger.debug("stream-retry log emit failed", exc_info=True)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:144:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:145:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:146:def emit_stream_drop(
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:147:    agent: Any, *, error: BaseException, attempt: int, max_attempts: int,
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:148:    mid_tool_call: bool, diag: Optional[dict[str, Any]] = None,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:149:) -> None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:150:    """One compact user-visible status line for a stream drop+retry, plus the full WARNING via log_stream_retry.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:151:    ``after Xs`` distinguishes "couldn't connect" (0s) from "died mid-stream" (idle-kill / proxy timeout)."""
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:152:    kind = "drop mid tool-call" if mid_tool_call else "drop"
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:153:    log_stream_retry(
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:154:        agent, kind=kind, error=error, attempt=attempt, max_attempts=max_attempts, mid_tool_call=mid_tool_call, diag=diag
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:155:    )
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:156:    provider = agent.provider or "provider"
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:157:    _suffix = ""
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:158:    try:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:159:        started = diag.get("started_at") if isinstance(diag, dict) else None
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:160:        if started is not None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:161:            _suffix = f" after {max(0.0, time.time() - float(started)):.1f}s"
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:162:    except Exception:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:163:        pass
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:164:    try:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:165:        agent._buffer_diagnostic_status(
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:166:            f"⚠️ {provider} stream {kind} ({type(error).__name__}){_suffix} "
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:167:            f"— attempt {attempt}/{max_attempts} dropped, reconnecting"
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:168:        )
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:169:        agent._touch_activity(f"stream retry {attempt}/{max_attempts} after {type(error).__name__}")
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:170:    except Exception:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:171:        pass
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:172:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:173:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:174:# Above this size a refused/reset connect is as likely a body-size limit on the endpoint or a proxy
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:175:# in front of it as an outage, so the notice says so (#97548: an ~829 KB request failed twice
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:176:# before the stream opened while short chats went through).
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:177:LARGE_REQUEST_HINT_BYTES = 256 * 1024
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:178:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:179:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:180:def _failed_request(error: BaseException) -> Any:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:181:    """The buffered ``httpx.Request`` carried by the exception chain (SDK wrapper or httpx error), else None."""
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:182:    link: Optional[BaseException] = error
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:183:    for _ in range(8):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:223:    """Buffer :func:`connect_exhausted_notice` once per turn: the outer retry/fallback loop re-enters the
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:224:    stream call several times, and every pass exhausting the same budget must not add another copy."""
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:225:    text = connect_exhausted_notice(error, attempts=attempts, base_url=base_url)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:226:    if any(str(msg) == text for _kind, msg in getattr(agent, "_retry_status_buffer", None) or ()):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:227:        return
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:228:    agent._buffer_diagnostic_status(text)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:229:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:230:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:231:__all__ = [
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:232:    "STREAM_DIAG_HEADERS",
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:233:    "buffer_connect_exhausted_notice",
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:234:    "connect_exhausted_notice",
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:235:    "emit_stream_drop",
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:236:    "flatten_exception_chain",
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:237:    "log_stream_retry",
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:238:    "stream_diag_capture_response",
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:239:    "stream_diag_init",
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\stream_diag.py:240:]
+
+===== chat_completion_helpers.py: retry diagnostics =====
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:590:    model = api_kwargs.get("model", "unknown")
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:591:    logger.warning("%son-streaming API call stale for %.0fs (threshold %.0fs). "
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:592:        "model=%s context=~%s tokens. Killing connection.", "Inline n" if inline else "N", elapsed,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:593:        stale_timeout, model, f"{estimate_request_context_tokens(api_kwargs):,}")
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:594:    try:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:595:        agent._buffer_diagnostic_status(
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:596:            f"⚠️ No response from provider for {int(elapsed)}s (non-streaming, model: {model}). {hint or 'Aborting call.'}")
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:597:    except Exception:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:598:        logger.debug("stale status buffering failed", exc_info=True)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:599:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:600:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:601:def _touch_stale_kill_activity(agent, elapsed: float) -> None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:602:    try:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:603:        agent._touch_activity(f"stale non-streaming call killed after {int(elapsed)}s")
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:604:    except Exception:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:605:        logger.debug("stale activity touch failed", exc_info=True)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:606:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:607:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:608:def _check_stale_giveup(agent) -> None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:609:    """Raise immediately when the consecutive-stale streak is past the
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2041:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2042:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2043:def _buffer_fallback_notice(agent, notice: str) -> None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2044:    """Buffer the switch notice for terminal failure AND retain it as a durable one-shot for
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2045:    _emit_pending_fallback_notice (a successful fallback clears retry chatter)."""
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2046:    agent._buffer_diagnostic_status(notice)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2047:    pending = getattr(agent, "_pending_fallback_notice", None)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2048:    if isinstance(pending, list):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2049:        pending.append(notice)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2050:    else:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2051:        agent._pending_fallback_notice = [str(pending), notice] if pending else [notice]
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2052:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2053:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2054:def try_activate_fallback(agent, reason: FailoverReason | None = None, reset_at=None) -> bool:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2055:    """Switch to the next fallback model/provider in the chain; False when exhausted. Swaps client,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2056:    model slug and provider in place so the retry loop continues on the new backend; client
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2057:    construction goes through resolve_provider_client (no duplicated provider→key mappings)."""
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2058:    from agent.fallback_cooldown import _arm_rate_limit_cooldown, switch_deferred_by_reset
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2059:    if switch_deferred_by_reset(agent, reason, reset_at):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2060:        return False
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2652:        block in the event loop forever)."""
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2653:        agent = self.agent
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2654:        logger.warning("Bedrock stream stale for %.0fs (threshold %.0fs) — no events "
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2655:            "received. region=%s model=%s. Aborting call.", stale_elapsed, self.stale_timeout, self.region,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2656:            self._model())
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2657:        agent._buffer_diagnostic_status(f"⚠️ No events from Bedrock for {int(stale_elapsed)}s (model: {self._model()}). Aborting...")
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2658:        _bump_stale_streak(agent)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2659:        # Evict the region's cached client so the NEXT call gets a fresh pool.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2660:        # This does NOT abort the in-flight botocore EventStream (no external
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2661:        # cancellation exists); the daemon worker keeps reading until its
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2662:        # socket errors, so THIS call ends via the TimeoutError below.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2663:        try:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2664:            from agent.bedrock_adapter import invalidate_runtime_client
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2665:            invalidate_runtime_client(self.region)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2666:        except Exception as _inval_exc:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2667:            logger.debug("bedrock: stale client eviction failed: %s", _inval_exc)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2668:        self.last_event = time.time()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2669:        # Raises RuntimeError past HERMES_STREAM_STALE_GIVEUP; otherwise end
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2670:        # THIS call with a TimeoutError and let the streak carry forward.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2671:        _check_stale_giveup(agent)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2848:        the delta callback for tag extraction (the CLI drops non-reasoning text
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2849:        once the stream box is closed)."""
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2850:        if self.agent.stream_delta_callback:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2851:            self._quiet(lambda: (self.agent.stream_delta_callback(text), self.agent._record_streamed_assistant_text(text)))
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2852:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2853:    def _new_diag(self) -> dict:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2854:        diag = self.agent._stream_diag_init()
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2855:        self.clients.diag = diag
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2856:        return diag
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2857:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2858:    def _count_chunk(self, diag, chunk) -> None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2859:        """Stamp liveness for a real chunk; diagnostics are best-effort."""
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2860:        self.last_chunk_time["t"] = time.time()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2861:        self.agent._touch_activity("receiving stream response")
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2862:        with contextlib.suppress(Exception):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2863:            diag["chunks"] = int(diag.get("chunks", 0)) + 1
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2864:            if diag.get("first_chunk_at") is None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2865:                diag["first_chunk_at"] = self.last_chunk_time["t"]
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2866:            # Delta-length estimate: ~3x cheaper than repr() per chunk.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2867:            diag["bytes"] = int(diag.get("bytes", 0)) + _estimate_chunk_bytes(chunk)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2868:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2869:    def _take_chunk(self, diag, chunk, llamacpp: bool) -> bool:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2961:    def _chat_stream_created(self, raw_stream: Any) -> None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2962:        response = self._attempt_stream_response = getattr(raw_stream, "response", None)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2963:        self.agent._capture_rate_limits(response)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2964:        self.agent._capture_credits(response)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2965:        self.agent._capture_nous_model_switch(response)
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2966:        self.agent._stream_diag_capture_response(self.clients.diag, response)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2967:        self.agent._check_openrouter_cache_status(response)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2968:        self._writer_token = claim_stream_writer(self.agent)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2969:        self._reabort_if_cancelled(response)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2970:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2971:    def _reabort_if_cancelled(self, response: Any) -> None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2972:        """Interrupt/stale abort that raced ``create()``: the one-shot pool sweep ran while
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2973:        the connect/TLS window held no socket yet (``tcp_force_closed=0``), so nothing stopped
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2974:        the request once it came up and the serve kept generating into a dropped consumer
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2975:        (#98974). Response headers prove the socket exists now — shut it down (shutdown-only,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2976:        never a cross-thread close) so the worker unwinds as after a stale kill."""
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2977:        with self.stream_attempt_lock:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2978:            current = int(self.stream_attempt_state["current"])
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2979:            cancelled = self._request_cancelled["value"] or current in self.stream_attempt_state["cancelled"]
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:2980:        if not cancelled:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3043:        from agent.reasoning_carriers import StreamCarriers
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3044:        carriers = StreamCarriers()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3045:        finish_reason = model_name = usage_obj = None
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3046:        response_id = upstream_provider = None  # the provider's own id / serving upstream, from the chunks
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3047:        role = "assistant"
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3048:        _diag = self._new_diag()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3049:        self._writer_token = self._attempt_request_client = self._attempt_stream_response = None
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3050:        from agent.chat_completion_helpers_relay import RelayChatAccumulator
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3051:        relay_response = RelayChatAccumulator()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3052:        # The raw channels, not the callback-delivered text: cron, subagents and callback-less
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3053:        # gateway turns register no stream callback, so nothing else sees a loop mid-stream.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3054:        content_watch, reasoning_watch = RunawayStreamWatch(), RunawayStreamWatch()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3055:        # Own watch: the display takes one reasoning representation per chunk, but the plain
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3056:        # field is persisted either way and need not mirror the details.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3057:        detail_watch = RunawayStreamWatch()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3058:        runaway = None
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3059:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3060:        # Temporary MiniMax/Dahl diagnostics: lengths and metadata only.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3061:        diag_chunks = 0
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3062:        diag_content_chars = 0
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3099:                # Still checked out: poison the slot so the finally really closes the pool.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3100:                if self._attempt_request_client is not None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3101:                    self.agent._abort_request_openai_client(self._attempt_request_client, reason=reason)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3102:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3103:        for chunk in _iter_provider_stream_chunks(stream, response=lambda: self._attempt_stream_response):
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3104:            is_progress = self._take_chunk(_diag, chunk, llamacpp)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3105:            if self.agent._interrupt_requested:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3106:                _close_half_read_stream("interrupt_stream_close_failed")
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3107:                break
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3108:            if not self._stream_attempt_is_active(stream_attempt_id):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3109:                self._discard_stale_stream_chunk(stream_attempt_id, chunk)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3110:                continue
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3111:            if is_progress:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3112:                continue
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3113:            diag_chunks += 1
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3114:            model_name, response_id, upstream_provider = self._chunk_identity(
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3115:                _diag, chunk, model_name, response_id, upstream_provider)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3116:            if not chunk.choices:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3117:                usage, finish_reason = self._choiceless_chunk(chunk, finish_reason)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3118:                usage_obj = usage or usage_obj
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3119:                self._mark_finish_seen(_diag, finish_reason)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3120:                continue
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3121:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3122:            choice = chunk.choices[0]
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3123:            delta = choice.delta
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3124:            # Read finish_reason/usage BEFORE any content-shape `continue`: the SSE-echo
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3125:            # guard can swallow a merged finish chunk (vLLM standalone ':' tokens).
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3126:            finish_reason = _normalize_finish_reason(getattr(choice, "finish_reason", None)) or finish_reason
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3127:            self._mark_finish_seen(_diag, finish_reason)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3128:            if hasattr(chunk, "usage") and chunk.usage:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3129:                usage_obj = chunk.usage
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3130:                diag_usage_chunks += 1
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3131:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3132:            reasoning_text = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3133:            # Same ``model_extra`` fallback as the non-streaming path: a reasoning-only stream
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3134:            # whose deltas carry only this field otherwise trips the empty-stream guard (#56516).
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3135:            if reasoning_text is None and isinstance(getattr(delta, "model_extra", None), dict):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3136:                reasoning_text = delta.model_extra.get("reasoning_content") or delta.model_extra.get("reasoning")
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3137:            # Copilot /chat/completions names its readable reasoning ``reasoning_text``.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3138:            reasoning_text = carriers.feed(delta, reasoning_text)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3139:            if reasoning_text:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3140:                diag_reasoning_chars += len(reasoning_text)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3141:                # Summary-part models omit the separator between markdown blocks; re-insert it.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3215:                        # Lets the stub-builder warn if streaming dies before the args
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3216:                        # complete instead of silently discarding the action.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3217:                        self.result["partial_tool_names"].append(name)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3218:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3219:        logger.warning(
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3220:            "STREAM_DIAG model=%s provider=%s chunks=%d content_chars=%d "
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3221:            "reasoning_chars=%d refusal_chars=%d tool_calls=%d usage_chunks=%d "
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3222:            "finish_reason=%s response_id_present=%s",
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3223:            self.api_kwargs.get("model", "unknown"),
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3224:            getattr(self.agent, "provider", "") or "unknown",
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3225:            diag_chunks, diag_content_chars, diag_reasoning_chars,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3226:            diag_refusal_chars, diag_tool_calls, diag_usage_chunks,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3227:            finish_reason or "none", bool(response_id),
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3228:        )
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3229:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3230:        if runaway:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3231:            _close_half_read_stream("runaway_stream_close_failed")
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3232:            self._log_runaway_cut(runaway)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3233:        tool_calls.materialize()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3234:        self._close_managed_stream()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3411:        has_tool_use = False
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3412:        # No message_stop -> EmptyStreamError; saw_stream_event only picks the message.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3413:        saw_stream_event = False
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3414:        saw_message_stop = False
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3415:        self.last_chunk_time["t"] = time.time()
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3416:        _diag = self._new_diag()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3417:        self._writer_token = self._attempt_stream_response = None
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3418:        self._attempt_request_client = request_client
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3419:        _stream_context = {"manager": None, "stream": None}
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3420:        base_final_message = None
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3421:        text_watch, thinking_watch = RunawayStreamWatch(), RunawayStreamWatch()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3422:        runaway = None
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3423:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3424:        from agent import relay_llm
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3425:        from agent.anthropic_adapter import normalize_stream_usage, sanitize_anthropic_kwargs
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3426:        accumulator = relay_llm.AnthropicStreamAccumulator()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3427:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3428:        def _open_anthropic_stream(next_api_kwargs: dict[str, Any]):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3429:            final_kwargs = dict(next_api_kwargs)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3430:            sanitize_anthropic_kwargs(final_kwargs, log_prefix=getattr(self.agent, "log_prefix", ""))
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3436:            _stream_context["stream"] = raw_stream
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3437:            # Same wiring as the chat_completions wire: MessageStream exposes the httpx response,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3438:            # so the interrupt/stale abort can shut down THIS attempt's socket (#98974).
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3439:            response = self._attempt_stream_response = getattr(raw_stream, "response", None)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3440:            # Snapshot response diagnostics now so they survive a stream dying before the first event.
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3441:            self._quiet(lambda: self.agent._stream_diag_capture_response(_diag, response))
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3442:            self._writer_token = claim_stream_writer(self.agent)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3443:            self._reabort_if_cancelled(response)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3444:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3445:        stream = self._set_managed_stream(relay_llm.stream(self.api_kwargs, _open_anthropic_stream,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3446:            **_relay_stream_identity(self.agent, "anthropic"), finalizer=accumulator.finalize,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3447:            on_stream_created=_anthropic_stream_created, on_chunk=accumulator.observe,
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3448:            accept_chunk=lambda _event: self._writer_still_current("Anthropic streaming"),
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3449:            metadata=_relay_stream_metadata(self.agent, "anthropic_messages"), defer_logical_completion=True))
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3450:        try:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3451:            for event in stream:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3452:                saw_stream_event = True
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3453:                self._count_chunk(_diag, event)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3454:                if self.agent._interrupt_requested:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3455:                    break
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3456:                event_type = getattr(event, "type", None)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3457:                if event_type == "message_stop":
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3458:                    saw_message_stop = True
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3459:                elif event_type == "message_delta":
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3460:                    self._mark_finish_seen(_diag, getattr(getattr(event, "delta", None), "stop_reason", None))
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3461:                elif event_type == "content_block_start":
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3462:                    block = getattr(event, "content_block", None)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3463:                    if block and getattr(block, "type", None) == "tool_use":
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3464:                        has_tool_use = True
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3465:                        if getattr(block, "name", None):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3466:                            self._emit_tool_started(block.name)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3467:                            # Same as the chat_completions wire: a stream that dies inside the
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3468:                            # tool args is retried (no tool has run yet) instead of stubbed.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3469:                            self.result["partial_tool_names"].append(block.name)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3470:                elif event_type == "content_block_delta":
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3471:                    delta = getattr(event, "delta", None)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3472:                    delta_type = getattr(delta, "type", None) if delta else None
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3473:                    if delta_type == "text_delta":
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3474:                        text = getattr(delta, "text", "")
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3522:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3523:    def _retry_after_drop(self, e, attempt: int, max_retries: int, *, mid_tool_call: bool, reason: str) -> None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3524:        """Warn about the drop and tear down the request-local client. Shared
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3525:        clients are never closed from inside a request (FD-recycle hazard); the
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3526:        OpenAI primary is replaced lazily."""
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3527:        self.agent._emit_stream_drop(
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3528:            error=e, attempt=attempt + 1, max_attempts=max_retries + 1, mid_tool_call=mid_tool_call, diag=self.clients.diag)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3529:        if self.agent._is_provider_stream_parse_error(e):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3530:            from agent.anthropic_adapter import buffer_anthropic_tool_input
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3531:            buffer_anthropic_tool_input(self.api_kwargs, getattr(self.agent, "_anthropic_base_url", None))
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3532:        self._cancel_current_stream_attempt(reason)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3533:        self.clients.close_once(reason)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3534:        # Exponential backoff between stream-level reconnects (back-to-back retries
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3535:        # hammer a provider that just dropped us). Interruptible: /stop exits at once.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3536:        from agent.retry_utils import jittered_backoff
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3537:        _wait_stream_retry_backoff(
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3538:            self.agent, jittered_backoff(attempt + 1, base_delay=1.0, max_delay=4.0, jitter_ratio=0.0))
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3539:        # The backoff is not the dead attempt's silence: restart the stale clock so the
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3540:        # stale monitor cannot kill (and strike) a stream that has not reopened yet.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3541:        self.last_chunk_time["t"] = time.time()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3542:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3645:            # preamble beats a failed action; no tool has executed yet).
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3646:            if not (_partial_tool_in_flight and _is_transient and attempt < max_retries):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3647:                logger.warning("Streaming failed after partial delivery, not retrying: %s", e)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3648:                self.result["error"] = e
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3649:                return False
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3650:            # Marker explains the re-streamed preamble (``_emit_stream_drop`` logs the WARNING);
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3651:            # reset the streamed-text buffer so it isn't double-recorded; fresh accumulators.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3652:            if self.agent._warning_presentation_enabled():
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3653:                self._quiet(self.agent._fire_stream_delta, "\n\n⚠ Connection dropped mid tool-call; reconnecting…\n\n")
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3654:            self._quiet(self.agent._reset_stream_delivery_tracking)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3655:            self.deltas_were_sent["yes"] = False
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3656:            self.first_delta_fired["done"] = False
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3657:            self._retry_after_drop(e, attempt, max_retries, mid_tool_call=True, reason="stream_mid_tool_retry_cleanup")
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3658:            return True
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3659:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3660:        if _is_transient or _is_empty_stream:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3661:            # Transient network / timeout error: retry with a fresh connection first.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3662:            if attempt < max_retries:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3663:                self._retry_after_drop(e, attempt, max_retries, mid_tool_call=False, reason="stream_retry_cleanup")
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3664:                return True
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3665:            # Exhausted: log full diagnostics (chain, headers, bytes/elapsed).
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3666:            self.agent._log_stream_retry(kind="exhausted", error=e, attempt=max_retries + 1,
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3667:                max_attempts=max_retries + 1, mid_tool_call=False, diag=self.clients.diag)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3668:            # Empty stream: "connection failed" would send users chasing network issues.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3669:            if _is_stream_parse_err or _is_empty_stream:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3670:                _what = ("Provider returned malformed streaming data after" if _is_stream_parse_err
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3671:                         else "Provider returned an empty response stream after")
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3672:                self.agent._buffer_diagnostic_status(
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3673:                    f"❌ {_what} {max_retries + 1} attempts. The provider may be experiencing issues — try again in a moment.")
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3674:            else:
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3675:                from agent.stream_diag import buffer_connect_exhausted_notice
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3676:                buffer_connect_exhausted_notice(self.agent, e, attempts=max_retries + 1, base_url=self.agent.base_url)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3677:        else:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3678:            self._maybe_disable_streaming(e)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3679:            logger.exception("Streaming failed before delivery: %s", e)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3680:            if self._unmask_server_error_with_nonstreaming(e):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3681:                return False
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3682:        # Propagate to the main retry loop (credential rotation, fallback, backoff).
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3683:        self.result["error"] = e
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3684:        return False
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3685:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3686:    def _unmask_server_error_with_nonstreaming(self, e: Exception) -> bool:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3687:        """One non-streaming re-issue when a 5xx killed the stream before any delta.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3688:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3689:        Some gateways validate the request only on their non-streaming path and crash
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3857:        _est_ctx = estimate_request_context_tokens(self.api_kwargs)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3858:        logger.warning(
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3859:            "Stream stale for %.0fs (threshold %.0fs) — no chunks received. model=%s context=~%s tokens. Killing connection.",
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3860:            elapsed, self._stream_stale_timeout, self.api_kwargs.get("model", "unknown"), f"{_est_ctx:,}",
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3861:        )
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3862:        self.agent._buffer_diagnostic_status(
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3863:            f"⚠️ No response from provider for {int(elapsed)}s (model: {self.api_kwargs.get('model', 'unknown')}, "
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3864:            f"context: ~{_est_ctx:,} tokens). Reconnecting...")
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3865:        # Captured BEFORE the cancel/abort: the pool sweep can miss a checked-out
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3866:        # connection, so shut down the killed attempt's own socket too — still
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3867:        # shutdown-only, never close (see the helper).
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3868:        _killed_response = self._attempt_stream_response
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3869:        with contextlib.suppress(Exception):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3870:            self._cancel_current_stream_attempt("stale_stream_kill")
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3871:            self.clients.close_once("stale_stream_kill")
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3872:        self._shutdown_stale_attempt_socket(_killed_response)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3873:        self._count_stale_attempt()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3874:        # Reset the timer so we don't kill repeatedly while the worker unwinds.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3875:        self.last_chunk_time["t"] = time.time()
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3876:        self.agent._emit_diagnostic_wait(f"⚠ no output from provider for {int(elapsed)}s — reconnecting...")
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3877:        self.agent._touch_activity(f"stale stream detected after {int(elapsed)}s, reconnecting")
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3878:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3879:    def _abort_for_interrupt(self, stale_elapsed: float) -> None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3880:        """/stop seen by the monitor: mark cancelled, abort the request-local
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3881:        socket, wait for the worker, flag the interrupt."""
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3882:        # Once per attempt: a stale kill that already counted this attempt wins.
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3883:        attempt = self._uncounted_stale_attempt()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3884:        if attempt and stale_elapsed <= self._stream_stale_timeout and _record_interrupted_provider_wait(
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3885:                self.agent, stale_elapsed, response_started=self.deltas_were_sent["yes"]):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3886:            self._stale_counted_attempts.add(attempt)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3887:        # Mark cancelled BEFORE force-closing so the worker treats the forced
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3888:        # transport error as a cancel, not a network error (#6600).
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3889:        self._request_cancelled["value"] = True
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:3890:        logger.debug("Force-closing streaming httpx client due to interrupt (not a network error).")
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:4008:                return self._partial_stream_stub()
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:4009:            raise self.result["error"]
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:4010:        if self.result["response"] is not None:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:4011:            _reset_stale_streak(self.agent)  # provider proved responsive: clear the breaker
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:4012:        # Propagate first-chunk timing for the ``post_api_request`` hook.
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:4013:        if isinstance(self.clients.diag, dict) and self.clients.diag.get("first_chunk_at"):
+> C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:4014:            self.agent._last_api_first_chunk_at = float(self.clients.diag["first_chunk_at"])
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:4015:        return self.result["response"]
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:4016:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:4017:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:4018:def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=None):
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:4019:    """Streaming variant of _interruptible_api_call: fires the delta callbacks per
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:4020:    text token (tool-call turns suppress them) and returns a SimpleNamespace in
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:4021:    the non-streaming response shape. codex_responses delegates to the already-
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:4022:    streaming codex runner; cron turns and delegated children run inline."""
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:4023:    if agent._interrupt_requested:
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:4024:        raise InterruptedError("Agent interrupted before streaming API call")
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:4025:    if agent.api_mode == "codex_responses":
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:4026:        return _stream_codex_passthrough(agent, api_kwargs, on_first_delta)
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:4027:    if agent.api_mode == "bedrock_converse":
+  C:\Users\Undr\AppData\Local\hermes\hermes-agent\agent\chat_completion_helpers.py:4028:        return _BedrockStream(agent, api_kwargs, on_first_delta).run()
